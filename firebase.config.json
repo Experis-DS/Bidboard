@@ -1,0 +1,10 @@
+{
+  "_comment": "Paste the Firebase web config from the existing experis-microsite-comments project. Until apiKey is a real value the site runs in Local only mode, which works but is not shared.",
+  "apiKey": "PASTE_API_KEY",
+  "authDomain": "PASTE.firebaseapp.com",
+  "projectId": "PASTE_PROJECT_ID",
+  "storageBucket": "PASTE.appspot.com",
+  "messagingSenderId": "PASTE",
+  "appId": "PASTE",
+  "hubCollection": "pursuits"
+}

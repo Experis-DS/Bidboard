@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 128" role="img" aria-label="Template changes flowing into draft decks; a published deck is skipped">
+  <rect width="200" height="128" rx="8" fill="#F8F8FB"/>
+  <rect x="1" y="1" width="198" height="126" rx="7.5" fill="none" stroke="#E6E5F0"/>
+  <!-- master template -->
+  <rect x="12" y="42" width="54" height="44" rx="5" fill="#5241B5"/>
+  <rect x="20" y="52" width="26" height="3" rx="1.5" fill="#fff" opacity=".9"/>
+  <rect x="20" y="60" width="38" height="2.5" rx="1.25" fill="#fff" opacity=".5"/>
+  <rect x="20" y="67" width="30" height="2.5" rx="1.25" fill="#fff" opacity=".5"/>
+  <rect x="20" y="74" width="34" height="2.5" rx="1.25" fill="#fff" opacity=".5"/>
+  <!-- arrows -->
+  <g stroke="#9A90DC" stroke-width="1.6" fill="none">
+    <path d="M70 58 C 88 58, 92 32, 112 32"/>
+    <path d="M70 66 C 88 66, 92 66, 112 66"/>
+  </g>
+  <g fill="#9A90DC">
+    <path d="M112 28.5l7 3.5-7 3.5z"/>
+    <path d="M112 62.5l7 3.5-7 3.5z"/>
+  </g>
+  <!-- draft decks receiving -->
+  <rect x="122" y="18" width="60" height="28" rx="4" fill="#fff" stroke="#9A90DC"/>
+  <rect x="129" y="25" width="24" height="3" rx="1.5" fill="#22242B"/>
+  <rect x="129" y="33" width="40" height="2" rx="1" fill="#D6D3EA"/>
+  <rect x="129" y="38" width="30" height="2" rx="1" fill="#D6D3EA"/>
+  <rect x="122" y="52" width="60" height="28" rx="4" fill="#fff" stroke="#9A90DC"/>
+  <rect x="129" y="59" width="28" height="3" rx="1.5" fill="#22242B"/>
+  <rect x="129" y="67" width="40" height="2" rx="1" fill="#D6D3EA"/>
+  <rect x="129" y="72" width="34" height="2" rx="1" fill="#D6D3EA"/>
+  <!-- published deck: skipped -->
+  <g opacity=".55">
+    <line x1="70" y1="74" x2="106" y2="96" stroke="#D6D3EA" stroke-width="1.6" stroke-dasharray="3 3"/>
+    <rect x="122" y="86" width="60" height="28" rx="4" fill="#F0EFF6" stroke="#E6E5F0"/>
+    <rect x="129" y="93" width="26" height="3" rx="1.5" fill="#A9ABB2"/>
+    <rect x="129" y="101" width="34" height="2" rx="1" fill="#D6D3EA"/>
+    <g transform="translate(163 92)">
+      <circle cx="7" cy="7" r="7" fill="#fff" stroke="#A9ABB2"/>
+      <line x1="4" y1="4" x2="10" y2="10" stroke="#A9ABB2" stroke-width="1.6"/>
+      <line x1="10" y1="4" x2="4" y2="10" stroke="#A9ABB2" stroke-width="1.6"/>
+    </g>
+  </g>
+</svg>

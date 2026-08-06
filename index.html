@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bid Board</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="description" content="Internal RFP pursuit briefs.">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32">
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="renderer/renderer.css">
+</head>
+<body>
+
+<header class="hub-head" id="hubHead">
+  <a class="hub-brand" href="#/">
+    <img src="assets/experis-wordmark.svg" alt="Experis" width="58" height="19">
+    <span class="rule"></span>
+    <span>Bid Board</span>
+  </a>
+
+  <nav class="hub-nav" id="hubNav">
+    <a href="#/">Library</a>
+    <a href="#/skills">Get the skills</a>
+    <a href="#/help">How this works</a>
+  </nav>
+
+  <div class="hub-head-right">
+    <span class="hub-pill" id="connPill" title="Storage mode">…</span>
+    <a class="btn btn-primary" href="#/import">Import a pursuit</a>
+  </div>
+</header>
+
+<!-- Slim bar shown only inside a brief -->
+<div class="brief-bar" id="briefBar" hidden>
+  <a class="brief-back" href="#/">← All pursuits</a>
+  <span class="brief-client" id="briefClient"></span>
+  <span class="hub-pill" id="briefConn"></span>
+  <span class="edit-state" id="editState" hidden>
+    Editing — <span id="saveState" class="save-state">changes save as you go</span>
+  </span>
+  <div class="brief-bar-right">
+    <button class="btn" id="btnEdit">Edit</button>
+    <button class="btn btn-icon" id="btnActivity" title="Activity log" aria-label="Activity log">
+      <span class="act-glyph"></span><span class="act-count" id="actCount" hidden></span>
+    </button>
+    <button class="btn" id="btnExport">Export pack</button>
+    <div class="menu">
+      <button class="btn" id="btnMore" aria-haspopup="true" aria-expanded="false">⋯</button>
+      <div class="menu-pop" id="morePop" hidden>
+        <button data-more="checkpoint">Save a checkpoint</button>
+        <button data-more="restore">Restore a checkpoint…</button>
+        <hr>
+        <button data-more="reimport">Re-import from a newer pack</button>
+        <button data-more="version">Renderer &amp; schema versions</button>
+        <button data-more="delete" class="danger">Delete this pursuit</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<aside class="act-panel" id="actPanel" hidden aria-label="Activity log">
+  <div class="act-head">
+    <b>Activity</b>
+    <button class="btn btn-sm" id="actClose">Close</button>
+  </div>
+  <div class="act-body" id="actBody"></div>
+</aside>
+
+<main id="screen"></main>
+
+<div class="modal" id="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true">
+    <div id="modalBody"></div>
+    <div class="modal-actions"><button class="btn" data-close>Close</button></div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

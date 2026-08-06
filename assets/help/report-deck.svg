@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 180" role="img"
+     aria-label="Seven days after publishing, an engagement report arrives showing what the client read">
+  <style>
+    .ln { fill:none; stroke:#22242B; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .hair { fill:none; stroke:#C9C6DE; stroke-width:2; stroke-linecap:round; }
+    .acc { fill:none; stroke:#5241B5; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .b1,.b2,.b3 { animation: grow 3.6s ease-in-out infinite; transform-origin: 50% 100%; }
+    .b2 { animation-delay:.16s } .b3 { animation-delay:.32s }
+    @keyframes grow { 0%,100% { transform:scaleY(.72) } 50% { transform:scaleY(1) } }
+    @media (prefers-reduced-motion: reduce) { .b1,.b2,.b3 { animation:none; transform:none } }
+  </style>
+
+  <!-- seven days -->
+  <g transform="translate(20 30)">
+    <rect x="0" y="0" width="72" height="66" rx="7" fill="#fff" class="ln"/>
+    <line x1="0" y1="16" x2="72" y2="16" class="ln"/>
+    <line x1="18" y1="0" x2="18" y2="6" class="ln"/>
+    <line x1="54" y1="0" x2="54" y2="6" class="ln"/>
+    <text x="36" y="48" text-anchor="middle" font-family="ui-sans-serif, system-ui, sans-serif"
+          font-size="22" font-weight="700" fill="#5241B5">7</text>
+  </g>
+  <text x="56" y="112" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="11" fill="#5F6169">days later</text>
+
+  <!-- arrow -->
+  <path class="acc" d="M104 62h24"/>
+  <path class="acc" d="M120 54l9 8-9 8"/>
+
+  <!-- the one-pager -->
+  <g transform="translate(144 20)">
+    <rect x="0" y="0" width="96" height="126" rx="7" fill="#fff" class="ln"/>
+    <line x1="14" y1="20" x2="60" y2="20" class="ln"/>
+    <line x1="14" y1="32" x2="76" y2="32" class="hair"/>
+
+    <!-- bars -->
+    <g>
+      <rect class="b1" x="16" y="56" width="14" height="40" rx="3" fill="#EEEBFA" stroke="#5241B5" stroke-width="2"/>
+      <rect class="b2" x="40" y="48" width="14" height="48" rx="3" fill="#EEEBFA" stroke="#5241B5" stroke-width="2"/>
+      <rect class="b3" x="64" y="66" width="14" height="30" rx="3" fill="#EEEBFA" stroke="#5241B5" stroke-width="2"/>
+    </g>
+    <line x1="14" y1="96" x2="82" y2="96" class="ln"/>
+    <line x1="14" y1="110" x2="66" y2="110" class="hair"/>
+  </g>
+</svg>

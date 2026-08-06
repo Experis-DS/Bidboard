@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 180" role="img"
+     aria-label="The brief exports its content pack, which becomes the starting point for the client deck">
+  <style>
+    .ln { fill:none; stroke:#22242B; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .hair { fill:none; stroke:#C9C6DE; stroke-width:2; stroke-linecap:round; }
+    .acc { fill:none; stroke:#5241B5; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .travel { animation: travel 3.4s ease-in-out infinite; }
+    @keyframes travel { 0%,100% { transform:translateX(0); opacity:.5 } 50% { transform:translateX(10px); opacity:1 } }
+    @media (prefers-reduced-motion: reduce) { .travel { animation:none; opacity:1 } }
+  </style>
+
+  <!-- the brief, on the site -->
+  <g transform="translate(16 24)">
+    <rect x="0" y="0" width="92" height="112" rx="7" fill="#fff" class="ln"/>
+    <rect x="0" y="0" width="92" height="16" rx="7" fill="#F8F8FB" class="hair"/>
+    <line x1="10" y1="8" x2="26" y2="8" class="hair"/>
+    <line x1="12" y1="32" x2="60" y2="32" class="ln"/>
+    <rect x="12" y="44" width="68" height="20" rx="4" fill="#EEEBFA" class="acc"/>
+    <line x1="12" y1="76" x2="72" y2="76" class="hair"/>
+    <line x1="12" y1="86" x2="62" y2="86" class="hair"/>
+    <line x1="12" y1="96" x2="70" y2="96" class="hair"/>
+  </g>
+
+  <!-- export -->
+  <g class="travel">
+    <path class="acc" d="M120 80h30"/>
+    <path class="acc" d="M142 72l9 8-9 8"/>
+  </g>
+
+  <!-- the pack: data, not a document -->
+  <g transform="translate(164 44)">
+    <rect x="0" y="0" width="80" height="72" rx="7" fill="#fff" class="ln"/>
+    <text x="40" y="30" text-anchor="middle"
+          font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5241B5">{ }</text>
+    <line x1="14" y1="44" x2="66" y2="44" class="hair"/>
+    <line x1="14" y1="54" x2="52" y2="54" class="hair"/>
+  </g>
+  <text x="204" y="132" text-anchor="middle"
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" fill="#5F6169">content pack</text>
+</svg>

@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 180" role="img"
+     aria-label="Reviewers comment on the draft and edit the copy directly on the page">
+  <style>
+    .ln { fill:none; stroke:#22242B; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .hair { fill:none; stroke:#C9C6DE; stroke-width:2; stroke-linecap:round; }
+    .acc { fill:none; stroke:#5241B5; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .caret { animation: blink 1.6s steps(1) infinite; }
+    .pop { animation: pop 3.4s ease-in-out infinite; }
+    @keyframes blink { 0%,49% { opacity:1 } 50%,100% { opacity:0 } }
+    @keyframes pop { 0%,100% { transform:translateY(0); opacity:.6 } 45% { transform:translateY(-4px); opacity:1 } }
+    @media (prefers-reduced-motion: reduce) { .caret,.pop { animation:none; opacity:1 } }
+  </style>
+
+  <!-- the page -->
+  <g transform="translate(20 30)">
+    <rect x="0" y="0" width="150" height="120" rx="7" fill="#fff" class="ln"/>
+    <rect x="0" y="0" width="150" height="14" rx="7" fill="#F8F8FB" class="hair"/>
+    <line x1="14" y1="36" x2="80" y2="36" class="hair"/>
+
+    <!-- the line being edited, in an active field -->
+    <rect x="10" y="48" width="130" height="22" rx="5" fill="#FBFAFE" class="acc"/>
+    <line x1="18" y1="59" x2="96" y2="59" class="hair"/>
+    <line class="caret" x1="102" y1="52" x2="102" y2="66" stroke="#5241B5" stroke-width="2.4" stroke-linecap="round"/>
+
+    <line x1="14" y1="84" x2="118" y2="84" class="hair"/>
+    <line x1="14" y1="94" x2="98" y2="94" class="hair"/>
+  </g>
+
+  <!-- a comment thread, anchored to the same line -->
+  <g transform="translate(158 52)"><g class="pop">
+    <path class="acc" fill="#fff" d="M6 0h72a6 6 0 0 1 6 6v34a6 6 0 0 1-6 6H26l-12 12V46H6a6 6 0 0 1-6-6V6a6 6 0 0 1 6-6z"/>
+    <line x1="14" y1="16" x2="66" y2="16" class="hair"/>
+    <line x1="14" y1="27" x2="54" y2="27" class="hair"/>
+  </g></g>
+
+  <!-- two people, same page -->
+  <g transform="translate(166 128)">
+    <circle cx="10" cy="10" r="9" fill="#EEEBFA" class="acc"/>
+    <circle cx="30" cy="10" r="9" fill="#fff" class="hair"/>
+    <circle cx="50" cy="10" r="9" fill="#fff" class="hair"/>
+  </g>
+  <text x="26" y="166" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="11" fill="#5F6169">edits + comments, live</text>
+</svg>

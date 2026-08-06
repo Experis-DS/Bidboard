@@ -1,0 +1,58 @@
+name: Deploy Bid Board
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+        id: pages
+
+      # No build step by design: the site is static ES modules, so what is in the
+      # repo is what ships. One less thing to break between an edit and a deploy.
+      #
+      # baseUrl is stamped from the live Pages URL rather than hand-maintained,
+      # because a stale baseUrl is silent — the site looks fine and the /RFP
+      # skill quietly points people at the wrong place.
+      - name: Stamp the deploy
+        env:
+          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const c = JSON.parse(fs.readFileSync("config.json", "utf8"));
+            c.deployedAt = new Date().toISOString();
+            c.commit = process.env.GITHUB_SHA.slice(0, 7);
+            if (process.env.PAGES_URL) c.baseUrl = process.env.PAGES_URL.replace(/\/$/, "");
+            fs.writeFileSync("config.json", JSON.stringify(c, null, 2));
+            console.log("baseUrl =", c.baseUrl);
+          '
+
+      # Firebase rules and CLI config are source, not site. They deploy with
+      # `firebase deploy --only firestore:rules,storage`, not with Pages.
+      - name: Drop non-site files from the artifact
+        run: rm -f firebase.json firestore.rules firestore.indexes.json storage.rules
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

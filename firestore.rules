@@ -1,0 +1,87 @@
+rules_version = '2';
+
+// ============================================================
+//  BID BOARD — Firestore rules
+//
+//  READ THIS BEFORE YOU DEPLOY IT.
+//
+//  These rules are open. Anyone who has the site URL — or who finds the
+//  project ID in the page source, which is public by design — can read and
+//  write every pursuit. There is no sign-in in this build, so there is no
+//  identity for a rule to check against. Rules cannot invent one.
+//
+//  That is a deliberate pilot trade: the tool is worth nothing if the team
+//  has to authenticate before they will use it, and it is worth nothing if
+//  it holds client RFP content on an open endpoint. Those two facts do not
+//  reconcile — they get resolved by a decision, not by a rules file.
+//
+//  What this file DOES buy you:
+//    · a hard expiry, so an open database cannot outlive the pilot by drift
+//    · shape validation, so a stray script cannot write junk into the tree
+//    · a 1 MiB-conscious size cap on index docs
+//    · deletes limited to the paths the app actually deletes
+//
+//  Before the first real client RFP goes in, replace `open()` below with
+//  `request.auth != null` and put Firebase Auth (Google, Experis domain
+//  restricted) in front of the site. That is a half-day of work and it is
+//  the difference between an internal tool and a public one.
+// ============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Change this date to extend the pilot. If you forget, the site fails
+    // closed and shows "Local only" instead of quietly staying open forever.
+    function open() {
+      return request.time < timestamp.date(2026, 12, 31);
+    }
+
+    function isString(v, maxLen) {
+      return v is string && v.size() <= maxLen;
+    }
+
+    match /pursuits/{briefId} {
+      // Index doc: small by contract. The pack itself lives in Storage
+      // precisely because Firestore caps documents at 1 MiB.
+      allow read: if open();
+      allow create, update: if open()
+        && request.resource.data.keys().hasAll(['briefId', 'client'])
+        && isString(request.resource.data.briefId, 200)
+        && request.resource.size() < 400 * 1024;
+      allow delete: if open();
+
+      // Every edit anyone makes. Never written into the pack — that is what
+      // keeps re-import non-destructive.
+      match /elements/{elementId} {
+        allow read: if open();
+        allow write: if open()
+          && request.resource.size() < 200 * 1024;
+      }
+
+      // Append-only in practice. Rules enforce it: an activity row cannot be
+      // rewritten after the fact, which is the whole point of an audit trail.
+      match /activity/{entryId} {
+        allow read: if open();
+        allow create: if open()
+          && request.resource.data.keys().hasAll(['at'])
+          && request.resource.size() < 64 * 1024;
+        allow update: if false;
+        allow delete: if open();   // only reached by the cascade in deletePursuit()
+      }
+
+      // A checkpoint snapshots the override set, so it can be large-ish.
+      match /checkpoints/{cpId} {
+        allow read: if open();
+        allow create: if open()
+          && request.resource.size() < 900 * 1024;
+        allow update: if false;
+        allow delete: if open();
+      }
+    }
+
+    // Nothing else in the project is reachable from this site.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

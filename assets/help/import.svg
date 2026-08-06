@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 180" role="img"
+     aria-label="Drop the zip onto the Import screen and the pursuit appears in the library">
+  <style>
+    .ln { fill:none; stroke:#22242B; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .hair { fill:none; stroke:#C9C6DE; stroke-width:2; stroke-linecap:round; }
+    .acc { fill:none; stroke:#5241B5; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .zip { animation: fall 4s cubic-bezier(.4,0,.3,1) infinite; }
+    .zone { animation: lit 4s ease-in-out infinite; }
+    .card { animation: appear 4s ease-in-out infinite; }
+    @keyframes fall {
+      0%,8%   { transform:translate(0,0); opacity:1 }
+      42%     { transform:translate(0,56px); opacity:1 }
+      52%,100%{ transform:translate(0,64px); opacity:0 }
+    }
+    @keyframes lit { 0%,30% { stroke:#C9C6DE } 42%,60% { stroke:#5241B5 } 72%,100% { stroke:#C9C6DE } }
+    @keyframes appear { 0%,58% { opacity:0; transform:translateY(4px) } 70%,92% { opacity:1; transform:translateY(0) } 100% { opacity:0 } }
+    @media (prefers-reduced-motion: reduce) {
+      .zip,.zone,.card { animation:none }
+      .zip { opacity:1 } .card { opacity:1; transform:none }
+    }
+  </style>
+
+  <!-- browser window -->
+  <rect x="24" y="58" width="212" height="112" rx="9" fill="#fff" class="ln"/>
+  <path class="ln" d="M24 67a9 9 0 0 1 9-9h194a9 9 0 0 1 9 9v9H24z"/>
+  <circle cx="38" cy="67" r="2.6" fill="#C9C6DE"/>
+  <circle cx="48" cy="67" r="2.6" fill="#C9C6DE"/>
+  <circle cx="58" cy="67" r="2.6" fill="#C9C6DE"/>
+
+  <!-- dropzone -->
+  <rect class="zone" x="44" y="90" width="172" height="66" rx="10"
+        fill="#F8F8FB" stroke="#C9C6DE" stroke-width="2.4" stroke-dasharray="7 6"/>
+
+  <!-- resulting pursuit card -->
+  <g class="card">
+    <rect x="60" y="101" width="140" height="44" rx="7" fill="#fff" class="hair"/>
+    <rect x="60" y="101" width="3" height="44" rx="1.5" fill="#5241B5"/>
+    <rect x="74" y="111" width="52" height="6" rx="3" fill="#22242B"/>
+    <rect x="74" y="124" width="80" height="4" rx="2" fill="#D6D3EA"/>
+    <rect x="74" y="133" width="46" height="4" rx="2" fill="#EEEBFA"/>
+    <rect x="74" y="133" width="20" height="4" rx="2" fill="#5241B5"/>
+  </g>
+
+  <!-- the zip being dropped. Position on the OUTER group: a CSS transform on the
+       animated element replaces the transform attribute and resets it to 0,0. -->
+  <g transform="translate(112 2)"><g class="zip">
+    <rect x="0" y="0" width="38" height="46" rx="6" fill="#fff" class="ln"/>
+    <rect x="14" y="0" width="10" height="16" rx="2.5" fill="#EEEBFA" class="acc"/>
+    <rect x="15" y="16" width="8" height="9" rx="2.5" fill="#fff" class="acc"/>
+    <line x1="8" y1="32" x2="30" y2="32" class="hair"/>
+    <line x1="8" y1="39" x2="24" y2="39" class="hair"/>
+    <!-- cursor -->
+    <path class="ln" transform="translate(28 27)" d="M0 0l14 5.5-5.6 2.1L5.9 13z" fill="#fff"/>
+  </g></g>
+</svg>

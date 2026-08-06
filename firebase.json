@@ -1,0 +1,10 @@
+{
+  "_comment": "Only used by the Firebase CLI to deploy the two rules files. The site itself is hosted on GitHub Pages, not Firebase Hosting — there is no hosting block here on purpose.",
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  }
+}

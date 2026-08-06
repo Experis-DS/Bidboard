@@ -1,0 +1,13 @@
+{
+  "hubName": "Bid Board",
+  "hubVersion": "1.2.0",
+  "baseUrl": "",
+  "owner": "Experis-DS",
+  "ownerPassword": "experis",
+  "analytics": {
+    "measurementId": "",
+    "note": "GA4 measurement ID, format G-XXXXXXXXXX. Leave empty and no Google script loads at all."
+  },
+  "notes": "baseUrl is filled in after the first deploy — it is the URL pasted into the /RFP skill as BRIEF_SITE_URL. ownerPassword gates the Site owner skills on the Skills page — cosmetic friction, not security; the .skill files are still at static URLs.",
+  "createdAt": "2026-08-06T19:10:44.648Z"
+}

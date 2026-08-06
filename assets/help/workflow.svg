@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1176 360" role="img"
+     aria-label="The pursuit process end to end: RFP documents, run slash rfp, the brief on this site, the bid gate, kickoff, the client deck skills, and the seven-day report. A no-bid decision stops after the gate and stays recorded. An addendum re-runs slash rfp.">
+  <style>
+    text { font-family: "Segoe UI", Helvetica, Arial, sans-serif; }
+    .t   { font-size: 13.5px; font-weight: 650; fill: #22242B; }
+    .t2  { font-size: 11.5px; fill: #5F6169; }
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; font-weight: 650; fill: #5241B5; }
+    .kicker { font-size: 9.5px; font-weight: 750; letter-spacing: 1.4px; fill: #A9ABB2; }
+    .box    { fill: #fff; stroke: #C9C6DE; stroke-width: 1.6; }
+    .box-skill   { fill: #fff; stroke: #5241B5; stroke-width: 1.8; }
+    .box-meeting { fill: #fff; stroke: #74767D; stroke-width: 1.6; stroke-dasharray: 5 4; }
+    .box-out     { fill: #F8F8FB; stroke: #E6E5F0; stroke-width: 1.6; }
+    .box-stop    { fill: #F8F8FB; stroke: #D6D3EA; stroke-width: 1.6; }
+    .flow { fill: none; stroke: #9A90DC; stroke-width: 1.8; }
+    .flow-mute { fill: none; stroke: #C9C6DE; stroke-width: 1.6; stroke-dasharray: 4 4; }
+    .head { fill: #9A90DC; }
+    .head-mute { fill: #C9C6DE; }
+    .dash-note { font-size: 11px; fill: #74767D; }
+  </style>
+
+  <!-- ============ main row ============ -->
+  <!-- 1 documents -->
+  <rect x="24" y="66" width="132" height="76" rx="9" class="box"/>
+  <text class="kicker" x="40" y="88">ARRIVES</text>
+  <text class="t"  x="40" y="108">RFP documents</text>
+  <text class="t2" x="40" y="126">one folder</text>
+
+  <path class="flow" d="M156 104h22"/><path class="head" d="M178 99l9 5-9 5z"/>
+
+  <!-- 2 /rfp -->
+  <rect x="192" y="66" width="132" height="76" rx="9" class="box-skill"/>
+  <text class="kicker" x="208" y="88">SKILL</text>
+  <text class="mono" x="208" y="108">/rfp</text>
+  <text class="t2"  x="208" y="126">reads all of them</text>
+
+  <path class="flow" d="M324 104h22"/><path class="head" d="M346 99l9 5-9 5z"/>
+
+  <!-- 3 the brief -->
+  <rect x="360" y="66" width="132" height="76" rx="9" class="box-out"/>
+  <text class="kicker" x="376" y="88">OUTPUT</text>
+  <text class="t"  x="376" y="108">The brief</text>
+  <text class="t2" x="376" y="126">imported, here</text>
+
+  <path class="flow" d="M492 104h22"/><path class="head" d="M514 99l9 5-9 5z"/>
+
+  <!-- 4 bid gate -->
+  <rect x="528" y="66" width="132" height="76" rx="9" class="box-meeting"/>
+  <text class="kicker" x="544" y="88">DECISION</text>
+  <text class="t"  x="544" y="108">Bid gate</text>
+  <text class="t2" x="544" y="126">run off the brief</text>
+
+  <path class="flow" d="M660 104h22"/><path class="head" d="M682 99l9 5-9 5z"/>
+  <text class="dash-note" x="666" y="96">bid</text>
+
+  <!-- 5 kickoff -->
+  <rect x="696" y="66" width="132" height="76" rx="9" class="box-meeting"/>
+  <text class="kicker" x="712" y="88">WORKSHOP</text>
+  <text class="t"  x="712" y="108">Kickoff</text>
+  <text class="t2" x="712" y="126">owners assigned</text>
+
+  <path class="flow" d="M828 104h22"/><path class="head" d="M850 99l9 5-9 5z"/>
+
+  <!-- 6 the deck -->
+  <rect x="864" y="52" width="152" height="104" rx="9" class="box-skill"/>
+  <text class="kicker" x="880" y="74">SKILLS</text>
+  <text class="mono" x="880" y="94" font-size="11.5">/draft-microsite</text>
+  <text class="t2"  x="880" y="112">review, then</text>
+  <text class="mono" x="880" y="130" font-size="11.5">/publish-microsite</text>
+
+  <path class="flow" d="M1016 104h22"/><path class="head" d="M1038 99l9 5-9 5z"/>
+
+  <!-- 7 report -->
+  <rect x="1052" y="66" width="112" height="76" rx="9" class="box-skill"/>
+  <text class="kicker" x="1068" y="88">7 DAYS LATER</text>
+  <text class="mono" x="1068" y="108">/report</text>
+  <text class="t2" x="1068" y="126">did they read it</text>
+
+  <!-- ============ no-bid branch ============ -->
+  <path class="flow-mute" d="M594 142v46h-46"/>
+  <path class="head-mute" d="M553 183l-9 5 9 5z"/>
+  <rect x="396" y="166" width="152" height="46" rx="9" class="box-stop"/>
+  <text class="t"  x="412" y="186" fill="#74767D">No-bid</text>
+  <text class="t2" x="412" y="202">stays here as the record</text>
+  <text class="dash-note" x="600" y="164">no</text>
+
+  <!-- ============ amendment loop ============ -->
+  <rect x="192" y="248" width="200" height="46" rx="9" class="box"/>
+  <text class="t"  x="208" y="268">Addendum or Q&amp;A arrives</text>
+  <text class="t2" x="208" y="284">re-run, same pursuit</text>
+  <path class="flow" d="M258 248V152"/>
+  <path class="head" d="M253 146l5 -9 5 9z"/>
+  <text class="dash-note" x="268" y="196">edits are kept</text>
+
+  <!-- ============ legend ============ -->
+  <g transform="translate(696 248)">
+    <rect x="0" y="0" width="26" height="14" rx="4" class="box-skill"/>
+    <text class="t2" x="34" y="11">a skill you run</text>
+    <rect x="0" y="24" width="26" height="14" rx="4" class="box-meeting"/>
+    <text class="t2" x="34" y="35">a meeting</text>
+    <rect x="152" y="0" width="26" height="14" rx="4" class="box-out"/>
+    <text class="t2" x="186" y="11">what you get</text>
+    <rect x="152" y="24" width="26" height="14" rx="4" class="box-stop"/>
+    <text class="t2" x="186" y="35">a stop</text>
+  </g>
+</svg>

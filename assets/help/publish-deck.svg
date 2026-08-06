@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 180" role="img"
+     aria-label="Publishing strips the comments and the draft mark, turns the password on, and tags the release">
+  <style>
+    .ln { fill:none; stroke:#22242B; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .hair { fill:none; stroke:#C9C6DE; stroke-width:2; stroke-linecap:round; }
+    .acc { fill:none; stroke:#5241B5; stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round; }
+    .shut { animation: shut 3.4s ease-in-out infinite; transform-origin: 50% 100%; }
+    @keyframes shut { 0%,100% { transform:translateY(0) } 50% { transform:translateY(-3px) } }
+    @media (prefers-reduced-motion: reduce) { .shut { animation:none } }
+  </style>
+
+  <!-- what comes off: comment bubble and draft mark, fading out -->
+  <g opacity=".35">
+    <path class="hair" fill="#fff" d="M20 26h44a5 5 0 0 1 5 5v22a5 5 0 0 1-5 5H36L26 68V58h-6a5 5 0 0 1-5-5V31a5 5 0 0 1 5-5z"/>
+    <line x1="26" y1="90" x2="62" y2="90" class="hair"/>
+    <line x1="20" y1="84" x2="68" y2="96" class="hair"/>
+    <line x1="68" y1="84" x2="20" y2="96" class="hair"/>
+  </g>
+
+  <!-- the clean client build -->
+  <g transform="translate(92 34)">
+    <rect x="0" y="0" width="146" height="104" rx="7" fill="#fff" class="ln"/>
+    <rect x="0" y="0" width="146" height="14" rx="7" fill="#F8F8FB" class="hair"/>
+    <line x1="16" y1="38" x2="84" y2="38" class="ln"/>
+    <line x1="16" y1="52" x2="118" y2="52" class="hair"/>
+    <line x1="16" y1="62" x2="104" y2="62" class="hair"/>
+    <rect x="16" y="76" width="44" height="14" rx="7" fill="#EEEBFA" class="acc"/>
+  </g>
+
+  <!-- padlock, closed -->
+  <g transform="translate(146 96)"><g class="shut">
+    <path class="acc" d="M10 16V11a10 10 0 0 1 20 0v5"/>
+    <rect x="2" y="16" width="36" height="28" rx="6" fill="#fff" class="ln"/>
+    <circle cx="20" cy="28" r="3" fill="#5241B5"/>
+    <line x1="20" y1="30" x2="20" y2="36" class="acc"/>
+  </g></g>
+
+  <text x="165" y="164" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="11" fill="#5F6169">v1.0 · tagged</text>
+</svg>

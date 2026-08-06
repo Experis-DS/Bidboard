@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 128" role="img" aria-label="A one-page engagement report: headline numbers, a per-slide bar chart, and a recommended follow-up">
+  <rect width="200" height="128" rx="8" fill="#F8F8FB"/>
+  <rect x="1" y="1" width="198" height="126" rx="7.5" fill="none" stroke="#E6E5F0"/>
+  <!-- page -->
+  <rect x="26" y="10" width="148" height="108" rx="5" fill="#fff" stroke="#E6E5F0"/>
+  <rect x="38" y="20" width="26" height="3" rx="1.5" fill="#5241B5"/>
+  <rect x="38" y="28" width="70" height="6" rx="2" fill="#22242B"/>
+  <!-- stat row -->
+  <rect x="38" y="42" width="36" height="18" rx="3" fill="#F8F8FB"/>
+  <rect x="43" y="47" width="16" height="6" rx="1" fill="#22242B"/>
+  <rect x="80" y="42" width="36" height="18" rx="3" fill="#F8F8FB"/>
+  <rect x="85" y="47" width="12" height="6" rx="1" fill="#22242B"/>
+  <rect x="122" y="42" width="40" height="18" rx="3" fill="#F8F8FB"/>
+  <rect x="127" y="47" width="20" height="6" rx="1" fill="#22242B"/>
+  <!-- bar chart: time per slide -->
+  <rect x="38" y="70" width="30" height="2.5" rx="1.25" fill="#C9C6DE"/>
+  <g>
+    <rect x="38" y="78" width="8" height="22" rx="2" fill="#5241B5"/>
+    <rect x="50" y="86" width="8" height="14" rx="2" fill="#5241B5" opacity=".72"/>
+    <rect x="62" y="82" width="8" height="18" rx="2" fill="#5241B5" opacity=".72"/>
+    <rect x="74" y="93" width="8" height="7" rx="2" fill="#D6D3EA"/>
+    <rect x="86" y="90" width="8" height="10" rx="2" fill="#D6D3EA"/>
+    <rect x="98" y="95" width="8" height="5" rx="2" fill="#D6D3EA"/>
+    <line x1="38" y1="100.5" x2="162" y2="100.5" stroke="#E6E5F0"/>
+  </g>
+  <!-- recommendation -->
+  <rect x="118" y="70" width="44" height="30" rx="3" fill="#EEEBFA"/>
+  <rect x="124" y="76" width="30" height="2.5" rx="1.25" fill="#5241B5"/>
+  <rect x="124" y="83" width="24" height="2" rx="1" fill="#9A90DC"/>
+  <rect x="124" y="89" width="28" height="2" rx="1" fill="#9A90DC"/>
+  <rect x="38" y="108" width="52" height="2.5" rx="1.25" fill="#D6D3EA"/>
+</svg>

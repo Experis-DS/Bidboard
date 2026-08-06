@@ -1,0 +1,5 @@
+{
+  "_comment": "Empty on purpose. Every query the site makes is a single-collection read with no compound where/orderBy, which Firestore serves from the automatic single-field indexes. If you add a filtered library query later, Firestore will log a console error containing a link that creates the index for you — paste the resulting definition in here so it survives a project rebuild.",
+  "indexes": [],
+  "fieldOverrides": []
+}

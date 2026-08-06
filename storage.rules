@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// ============================================================
+//  BID BOARD — Cloud Storage rules
+//
+//  Storage holds two things per pursuit:
+//    pursuits/{briefId}/pack.json   — the full pack, too big for Firestore
+//    pursuits/{briefId}/{asset}     — thumbnails, and client documents only
+//                                     when someone explicitly chose
+//                                     docLinks: "hosted" for that pursuit
+//
+//  The same caveat as firestore.rules applies: open, pilot-scoped, expires.
+//  Note that a Storage download URL is a bearer token — once someone has one
+//  it keeps working even after you lock the rules down. If a client document
+//  ever gets uploaded here by mistake, deleting the object is the only fix;
+//  tightening the rules afterwards is not.
+// ============================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function open() {
+      return request.time < timestamp.date(2026, 12, 31);
+    }
+
+    match /pursuits/{briefId}/{fileName} {
+      allow read: if open();
+
+      // 25 MB ceiling. A pack with a few hundred thumbnails lands around 3–8 MB;
+      // anything near the cap means somebody is hosting the client's PDFs, which
+      // is a per-pursuit decision, not a default.
+      allow write: if open()
+        && request.resource.size < 25 * 1024 * 1024
+        && request.resource.contentType.matches('application/json|image/.*|application/pdf|text/.*');
+
+      allow delete: if open();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
