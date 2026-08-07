@@ -1,9 +1,9 @@
 {
-  "_comment": "Paste the Firebase web config here (Project settings -> General -> Your apps -> Web). Until apiKey is a real value the site runs in Local only mode, which works but is not shared. storageBucket is unused: this build is Firestore-only and never touches Cloud Storage, which requires the Blaze plan.",
-  "apiKey": "PASTE_API_KEY",
-  "authDomain": "PASTE.firebaseapp.com",
-  "projectId": "PASTE_PROJECT_ID",
-  "messagingSenderId": "PASTE",
-  "appId": "PASTE",
+  "_comment": "Firebase web config. Public by design — it ships in the page source of every Firebase web app and is not a secret. What protects the data is firestore.rules, not this. storageBucket is intentionally absent: this build is Firestore-only and never calls Cloud Storage, which requires the Blaze plan.",
+  "apiKey": "AIzaSyASr8qLHvoaOlaUrY9q-6PmNzHWK11SDr0",
+  "authDomain": "bid-board-232b3.firebaseapp.com",
+  "projectId": "bid-board-232b3",
+  "messagingSenderId": "968022825832",
+  "appId": "1:968022825832:web:35ff1a2999368ad71f14dd",
   "hubCollection": "pursuits"
 }
