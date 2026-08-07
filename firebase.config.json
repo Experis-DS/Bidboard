@@ -1,9 +1,8 @@
 {
-  "_comment": "Paste the Firebase web config from the existing experis-microsite-comments project. Until apiKey is a real value the site runs in Local only mode, which works but is not shared.",
+  "_comment": "Paste the Firebase web config here (Project settings -> General -> Your apps -> Web). Until apiKey is a real value the site runs in Local only mode, which works but is not shared. storageBucket is unused: this build is Firestore-only and never touches Cloud Storage, which requires the Blaze plan.",
   "apiKey": "PASTE_API_KEY",
   "authDomain": "PASTE.firebaseapp.com",
   "projectId": "PASTE_PROJECT_ID",
-  "storageBucket": "PASTE.appspot.com",
   "messagingSenderId": "PASTE",
   "appId": "PASTE",
   "hubCollection": "pursuits"

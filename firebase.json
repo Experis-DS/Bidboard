@@ -1,10 +1,7 @@
 {
-  "_comment": "Only used by the Firebase CLI to deploy the two rules files. The site itself is hosted on GitHub Pages, not Firebase Hosting — there is no hosting block here on purpose.",
+  "_comment": "Only used by the Firebase CLI to deploy Firestore rules. The site is hosted on GitHub Pages, not Firebase Hosting — no hosting block on purpose. There is no storage block either: this build is Firestore-only, because Cloud Storage requires the Blaze plan and an internal tool should not need a billing account to exist.",
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
-  },
-  "storage": {
-    "rules": "storage.rules"
   }
 }

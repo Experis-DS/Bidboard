@@ -16,8 +16,7 @@ renderer/                THE VERSIONED RENDERER — see below
 config.json              hub name, version, baseUrl, GA4 measurement ID
 firebase.config.json     paste the web config here to turn on shared storage
 firestore.rules          \
-storage.rules             |  deployed with the Firebase CLI, not with Pages
-firebase.json             |
+firebase.json             |  deployed with the Firebase CLI, not with Pages
 firestore.indexes.json   /
 skills/                  hosted skill downloads + index.json
 .github/workflows/       Pages deploy
@@ -69,65 +68,65 @@ access model you chose: unlisted URL, no sign-in. Read §4 before real client co
 Without this, the site works but every person's imports and edits live only in their own
 browser. With it, everyone sees the same board.
 
-You said you already have a Firebase account. Roughly ten minutes:
+**This build is Firestore-only.** Cloud Storage requires the Blaze plan, and needing a
+billing account approved to stand up an internal tool is a delay measured in weeks. So the
+pack is sliced across Firestore documents instead of stored as one object. Everything below
+runs on the free Spark plan, and there is no CORS step — which was previously the single
+most common way this deploy broke.
+
+The trade: **bundled documents stay in the importer's browser.** Everyone sees the same
+brief, but only the person who imported it can open the source files from the Document Map;
+for everyone else the renderer shows those rows as plain text. Given the site is a public
+URL with no sign-in, keeping client documents off the network is the better failure mode.
 
 ### 2.1 Create the project
 
-1. https://console.firebase.google.com → **Add project** → name it `bid-board`
-   (lowercase — Firebase project IDs cannot contain capitals, so this one does not
-   match the repo name, and that is fine; nothing links them)
-   (or reuse `experis-microsite-comments` — the site namespaces everything under a
-   `pursuits/` root, so it will not collide with what's already in there).
+1. https://console.firebase.google.com → **Add project** → name it `bid-board`.
 2. Google Analytics for the *Firebase project*: **skip it.** GA4 for the site is wired
-   separately in §3 and doubling up gives you two properties reporting different numbers.
+   separately in §3, and doubling up gives you two properties reporting different numbers.
+3. Stay on **Spark**. Nothing here needs Blaze.
 
 ### 2.2 Firestore
 
 1. **Build → Firestore Database → Create database**
 2. Location: **`eur3` (europe-west)** if the team is EMEA — most of these pursuits are.
-   This is permanent; you cannot move a database region later.
-3. Start in **production mode**. The rules in this repo replace the default ones in 2.5.
+   This is permanent; a database cannot be moved between regions later.
+3. Start in **production mode**. The rules in this repo replace the default ones in 2.4.
 
-### 2.3 Storage
+Do **not** enable Storage. The site never calls it.
 
-1. **Build → Storage → Get started** → same location as Firestore.
-2. Storage holds `pack.json` per pursuit plus thumbnails. Firestore documents cap at
-   1 MiB and a thumbnail-heavy pack blows past that, which is why the two are split.
-
-### 2.4 Register the web app and paste the config
+### 2.3 Register the web app and paste the config
 
 1. **Project settings (gear) → General → Your apps → Web (`</>`)**
-2. Nickname `bid-board`. **Do not** tick “Also set up Firebase Hosting” — the site is on
+2. Nickname `bid-board`. **Do not** tick "Also set up Firebase Hosting" — the site is on
    GitHub Pages.
-3. Copy the `firebaseConfig` object it shows you and paste the values into
-   `firebase.config.json` in this repo, replacing every `PASTE_…`:
+3. Copy the `firebaseConfig` object and paste the values into `firebase.config.json`,
+   replacing every `PASTE_…`:
 
 ```json
 {
   "apiKey": "AIza…",
-  "authDomain": "bid-board.firebaseapp.com",
-  "projectId": "bid-board",
-  "storageBucket": "bid-board.firebasestorage.app",
+  "authDomain": "bid-board-232b3.firebaseapp.com",
+  "projectId": "bid-board-232b3",
   "messagingSenderId": "1234567890",
   "appId": "1:1234567890:web:abc123",
   "hubCollection": "pursuits"
 }
 ```
 
+`storageBucket` is not needed and is deliberately absent. Note the project ID usually gets a
+random suffix (`bid-board-232b3`, not `bid-board`) — copy what the console shows.
+
 This config is **public by design** — it ships in the page source of every Firebase web app
 and is not a secret. What protects the data is the rules file, not this. Commit it.
 
-Copy `storageBucket` exactly as the console prints it. New projects use
-`…firebasestorage.app`; older ones use `…appspot.com`. Getting this wrong fails silently —
-the Library loads, and pack uploads die.
-
-### 2.5 Deploy the rules
+### 2.4 Deploy the rules
 
 ```bash
 npm install -g firebase-tools
 firebase login
 firebase use --add            # pick the project, alias it "default"
-firebase deploy --only firestore:rules,storage
+firebase deploy --only firestore:rules
 ```
 
 Read `firestore.rules` before you run that. The short version: **the rules are open.**
@@ -135,30 +134,19 @@ There is no sign-in in this build, so there is no identity for a rule to test. W
 does add is a hard expiry date (31 Dec 2026), shape validation, size caps, and an
 append-only constraint on the activity log so an audit trail can't be quietly rewritten.
 
-### 2.6 CORS for Storage
-
-Pack downloads are `fetch`ed from a `github.io` origin, which Storage will block by default.
-
-```bash
-cat > cors.json <<'EOF'
-[{ "origin": ["https://experis-ds.github.io"], "method": ["GET"], "maxAgeSeconds": 3600 }]
-EOF
-gcloud storage buckets update gs://YOUR_BUCKET --cors-file=cors.json
-```
-
-`YOUR_BUCKET` is the `storageBucket` value from §2.4. If `gcloud` isn't installed, the
-Cloud Shell in the Google Cloud console has it. **Skip this and briefs will open with an
-empty body and a CORS error in the console** — it is the single most common way this
-deploy fails.
-
-### 2.7 Confirm
+### 2.5 Confirm
 
 Push, wait for the Action, open the site. The pill in the header should read **Shared**
 instead of **Local only**. Import a pursuit in one browser, open the site in another —
-it should be there. Then open a brief, hit **Edit**, change an owner, and check the
-activity panel from the second browser.
+it should be there. Then open a brief, hit **Edit**, change an owner, and check the activity
+panel from the second browser.
 
----
+### 2.6 Free-tier headroom
+
+Spark gives 1 GiB stored, 50K reads/day and 20K writes/day. A pack is one to a few chunk
+documents, so opening a brief costs roughly five reads. A ten-person team working a dozen
+live pursuits is two orders of magnitude inside that. If it ever does get tight, the fix is
+Blaze — not a rewrite.
 
 ## 3 — GA4
 
@@ -196,10 +184,10 @@ Unlisted URL, no sign-in, public repo, open Firestore rules. **Anyone with the l
 every brief.** So, for the pilot:
 
 - No Experis rate or pricing data in a pack.
-- `docLinks: hosted` — which carries the client's own documents into Storage — is a
-  per-pursuit decision, never the default.
-- A Storage download URL is a bearer token. If a client document is uploaded by mistake,
-  **delete the object**; tightening rules afterwards does not revoke URLs already issued.
+- `docLinks: hosted` is not supported in this build. There is no Cloud Storage, so a
+  client's own documents cannot be carried into the cloud even by mistake — bundled files
+  stay in the importer's browser. This started as a plan constraint and ended up the right
+  posture for a site anyone with the link can read.
 - The owner-skills password on the Skills page (`experis`) is cosmetic friction. The
   `.skill` files sit at static URLs. Do not describe it as protection.
 
@@ -267,12 +255,15 @@ Opening `index.html` directly off disk also works: `fetch` and IndexedDB are una
 
 ```
 pursuits/{briefId}                    index doc — the Library reads only this
+pursuits/{briefId}/pack/{i}           the imported pack, sliced into ~250k-char chunks
 pursuits/{briefId}/elements/{id}      live edits, layered over the imported pack
 pursuits/{briefId}/activity/{id}      audit trail, append-only
 pursuits/{briefId}/checkpoints/{id}   snapshots of the override set
-Storage  pursuits/{briefId}/pack.json  and  /assets
+
+No Cloud Storage. Bundled documents live in the importing browser's IndexedDB only.
 ```
 
-Firestore does not cascade deletes. `deletePursuit()` clears all three subcollections
+Firestore does not cascade deletes. `deletePursuit()` clears all four subcollections
 explicitly — without that, deleting a pursuit and re-importing the same `briefId` would
-resurrect every override from the deleted one.
+resurrect every override from the deleted one, and leftover `pack` chunks would make the
+next import look like a corrupt pack rather than a stale delete.

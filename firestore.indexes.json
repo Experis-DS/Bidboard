@@ -1,5 +1,11 @@
 {
-  "_comment": "Empty on purpose. Every query the site makes is a single-collection read with no compound where/orderBy, which Firestore serves from the automatic single-field indexes. If you add a filtered library query later, Firestore will log a console error containing a link that creates the index for you — paste the resulting definition in here so it survives a project rebuild.",
+  "_comment": "No composite indexes: every query the site makes is a single-collection read with no compound where/orderBy, which Firestore serves from the automatic single-field indexes. The fieldOverride below matters — the pack is stored as ~250,000-character string slices, and Firestore would otherwise build an index entry for each one. Nothing queries or orders by that field, so indexing it is pure storage and write cost, and very long values can trip index-entry size limits.",
   "indexes": [],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "pack",
+      "fieldPath": "s",
+      "indexes": []
+    }
+  ]
 }

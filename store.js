@@ -2,12 +2,22 @@
    STORE — one API, two backends.
    The rest of the app cannot tell which one it got.
 
-     shared : Firestore index docs + Storage pack objects
+     shared : Firestore only — an index doc plus the pack split across
+              chunk documents
      local  : IndexedDB (also the offline cache in shared mode)
 
-   Why the pack is not a Firestore document: documents cap at 1 MiB and a
-   pack with eight base64 PDF thumbnails is already a third of that before
-   any content. See reference/data-model.md.
+   Cloud Storage is deliberately not used. It requires the Blaze plan, and
+   needing a billing account to stand up an internal tool is a delay measured
+   in weeks at a company this size. So the pack is chunked instead: a Firestore
+   document caps at 1 MiB, and a pack carrying base64 PDF thumbnails clears
+   that on its own, so JSON.stringify(pack) is sliced across
+   pursuits/{briefId}/pack/{i} and reassembled on read.
+
+   The cost of that choice is real and worth stating: bundled DOCUMENTS stay in
+   the importer's browser. Everyone sees the same brief; only the person who
+   imported it can open the source files from the Document Map. Given the site
+   is a public URL with no sign-in, keeping client documents off the network is
+   the better failure mode. See reference/data-model.md.
    ============================================================ */
 
 const SDK = "https://www.gstatic.com/firebasejs/10.12.2";
@@ -83,13 +93,12 @@ export async function initStore() {
   if (!cfg) { store.mode = "local"; return store; }
 
   try {
-    const [{ initializeApp }, fs, st] = await Promise.all([
+    const [{ initializeApp }, fs] = await Promise.all([
       import(`${SDK}/firebase-app.js`),
       import(`${SDK}/firebase-firestore.js`),
-      import(`${SDK}/firebase-storage.js`),
     ]);
     const app = initializeApp(cfg);
-    store._fb = { fs, st, db: fs.getFirestore(app), bucket: st.getStorage(app), root: cfg.hubCollection || "pursuits" };
+    store._fb = { fs, db: fs.getFirestore(app), root: cfg.hubCollection || "pursuits" };
     store.mode = "shared";
   } catch (e) {
     console.warn("Firebase unavailable — falling back to local storage.", e);
@@ -129,11 +138,9 @@ export async function getPursuit(briefId) {
 export async function getPack(briefId) {
   const idx = await getPursuit(briefId);
   if (!idx) return null;
-  if (store.mode === "shared" && navigator.onLine && idx.packPath) {
+  if (store.mode === "shared" && navigator.onLine && idx.packChunks) {
     try {
-      const { st, bucket } = store._fb;
-      const url = await st.getDownloadURL(st.ref(bucket, idx.packPath));
-      const pack = await (await fetch(url)).json();
+      const pack = await readChunkedPack(briefId, idx.packChunks);
       await idbPut("packs", pack, briefId);
       return applyOverrides(pack, await getElements(briefId));
     } catch (e) { console.warn("Pack fetch failed — using cache.", e); }
@@ -193,30 +200,77 @@ function setByPath(obj, path, value) {
   }
 }
 
+/* ---------------- the chunked pack ----------------
+   250,000 characters per chunk. Worst case for BMP text is 3 UTF-8 bytes per
+   character, so a chunk cannot exceed ~750 KB against Firestore's 1 MiB
+   document ceiling — and real packs are mostly ASCII, so a chunk is usually
+   about 250 KB. Deliberately conservative: getting this wrong shows up as a
+   failed import on somebody else's machine, weeks later.
+
+   The chunk field is exempt from indexing in firestore.indexes.json. Nothing
+   queries it, and indexing a quarter-megabyte string per chunk is pure waste. */
+const CHUNK = 250_000;
+
+function sliceJson(pack) {
+  const s = JSON.stringify(pack);
+  const out = [];
+  for (let i = 0; i < s.length; i += CHUNK) out.push(s.slice(i, i + CHUNK));
+  return out;
+}
+
+async function readChunkedPack(briefId, total) {
+  const { fs, db, root } = store._fb;
+  // Read them in one query rather than N gets, then order by index — a
+  // collection read is one round trip and the order Firestore returns is
+  // not guaranteed to be the order they were written.
+  const snap = await fs.getDocs(fs.collection(db, root, briefId, "pack"));
+  const parts = snap.docs.map((d) => d.data()).sort((a, b) => a.i - b.i);
+  if (parts.length !== total) {
+    throw new Error(`pack is incomplete: ${parts.length} of ${total} chunks`);
+  }
+  return JSON.parse(parts.map((p) => p.s).join(""));
+}
+
+async function writeChunkedPack(briefId, pack) {
+  const { fs, db, root } = store._fb;
+  const parts = sliceJson(pack);
+
+  // Clear a longer previous pack first. Without this, re-importing something
+  // smaller leaves the tail chunks of the old one behind, and the count check
+  // in readChunkedPack starts failing on a pursuit that looks fine.
+  const old = await fs.getDocs(fs.collection(db, root, briefId, "pack"));
+  await Promise.all(old.docs
+    .filter((d) => Number(d.data().i) >= parts.length)
+    .map((d) => fs.deleteDoc(d.ref)));
+
+  await Promise.all(parts.map((s, i) =>
+    fs.setDoc(fs.doc(db, root, briefId, "pack", String(i)), { i, total: parts.length, s })));
+  return parts.length;
+}
+
 /* ---------------- writes ---------------- */
 
-/* Assets first, pack second, index doc LAST — so a failed import leaves the
-   Library exactly as it was rather than half-populated. */
+/* Pack chunks first, index doc LAST — so a failed import leaves the Library
+   exactly as it was rather than half-populated. The index doc is what the
+   Library reads, so until it lands the pursuit does not exist. */
 export async function putPursuit({ index, pack, assets }) {
   if (store.mode === "shared") {
-    const { fs, st, db, bucket, root } = store._fb;
-    for (const [name, bytes] of (assets || new Map())) {
-      await st.uploadBytes(st.ref(bucket, `${root}/${index.briefId}/${name}`), bytes);
-    }
-    const packPath = `${root}/${index.briefId}/pack.json`;
-    await st.uploadBytes(st.ref(bucket, packPath),
-      new Blob([JSON.stringify(pack)], { type: "application/json" }));
-    index.packPath = packPath;
+    const { fs, db, root } = store._fb;
+    index.packChunks = await writeChunkedPack(index.briefId, pack);
     await fs.setDoc(fs.doc(db, root, index.briefId), index, { merge: true });
   }
+  // Bundled documents stay on this machine. They are the one thing in a pack
+  // that can be the client's own property, and this site is a public URL.
   for (const [name, b] of (assets || new Map())) await idbPut("assets", b, `${index.briefId}/${name}`);
   await idbPut("packs", pack, index.briefId);
   await idbPut("pursuits", index);
   return index;
 }
 
-/* Bytes for a document carried in the bundle, or null. Null is a real answer:
-   the renderer then shows the row as plain text instead of a link that 404s. */
+/* Bytes for a document carried in the bundle, or null. Null is a real answer,
+   and the common one: documents live only in the importer's browser, so for
+   everyone else the renderer shows the row as plain text rather than a link
+   that goes nowhere. */
 export async function getAssetBytes(briefId, relPath) {
   return (await idbGet("assets", `${briefId}/${relPath}`)) || null;
 }
@@ -309,17 +363,14 @@ export async function appendActivity(briefId, entry) {
 
 export async function deletePursuit(briefId) {
   if (store.mode === "shared") {
-    const { fs, st, db, bucket, root } = store._fb;
-    const idx = await getPursuit(briefId);
-    for (const a of (idx?.assets || [])) {
-      try { await st.deleteObject(st.ref(bucket, `${root}/${briefId}/${a}`)); } catch {}
-    }
-    try { await st.deleteObject(st.ref(bucket, `${root}/${briefId}/pack.json`)); } catch {}
+    const { fs, db, root } = store._fb;
 
     // Firestore does not cascade. Without this, deleting a pursuit and importing
     // the same briefId again resurrects every override and log line from the
-    // deleted one — the new pursuit arrives pre-edited by someone else.
-    for (const sub of ["elements", "activity", "checkpoints"]) {
+    // deleted one — the new pursuit arrives pre-edited by someone else. "pack"
+    // is in this list too: leftover chunks make the count check fail on the
+    // next import, which reads as a corrupt pack rather than a stale delete.
+    for (const sub of ["pack", "elements", "activity", "checkpoints"]) {
       try {
         const snap = await fs.getDocs(fs.collection(db, root, briefId, sub));
         await Promise.all(snap.docs.map((d) => fs.deleteDoc(d.ref)));

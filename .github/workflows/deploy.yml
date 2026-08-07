@@ -49,7 +49,7 @@ jobs:
       # Firebase rules and CLI config are source, not site. They deploy with
       # `firebase deploy --only firestore:rules,storage`, not with Pages.
       - name: Drop non-site files from the artifact
-        run: rm -f firebase.json firestore.rules firestore.indexes.json storage.rules
+        run: rm -f firebase.json firestore.rules firestore.indexes.json
 
       - uses: actions/upload-pages-artifact@v3
         with:

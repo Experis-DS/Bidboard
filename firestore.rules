@@ -50,6 +50,16 @@ service cloud.firestore {
         && request.resource.size() < 400 * 1024;
       allow delete: if open();
 
+      // The imported pack, sliced across chunk documents because Cloud Storage
+      // needs the Blaze plan and this project is on Spark. Each chunk is capped
+      // in the client at ~250,000 characters; the 950 KB ceiling here is the
+      // backstop against a client that ignores that.
+      match /pack/{chunkId} {
+        allow read: if open();
+        allow write: if open()
+          && request.resource.size() < 950 * 1024;
+      }
+
       // Every edit anyone makes. Never written into the pack — that is what
       // keeps re-import non-destructive.
       match /elements/{elementId} {
