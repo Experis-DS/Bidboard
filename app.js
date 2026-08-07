@@ -940,28 +940,32 @@ const HELP_STEPS = [
 const DECK_STEPS = [
   { art: "assets/help/export-pack.svg",
     title: "Export the pack from the brief",
-    body: `Open the pursuit and click <b>Export pack</b>. The deck starts from what the brief
-           already knows — the ask, the differentiators, the numbers — so nothing is retyped and
-           nothing quietly disagrees with the brief.` },
+    body: `Open the pursuit and click <b>Export pack</b>. You get a JSON file built to drop
+           straight into the microsite template, so the deck starts from what the brief
+           already knows and nothing is retyped.` },
   { art: "assets/help/draft-deck.svg",
     title: "Run <code>/draft-microsite</code>",
-    body: `Point your AI assistant at that pack and say <code>run /draft-microsite</code>. You get a
-           branded click-through deck in <b>draft</b> state: watermarked, version-stamped, with the
-           review layer switched on.` },
+    body: `Put the pack in the same folder you ran <code>/rfp</code> on, then tell your AI
+           assistant <code>run /draft-microsite</code>. It builds a branded, click-through deck
+           in <b>draft</b> state — watermarked, version-stamped, with editing and commenting
+           already switched on.` },
   { art: "assets/help/review-deck.svg",
     title: "Share the draft for review",
-    body: `Reviewers open the link and work on the page itself — <b>comment</b> on anything, or
-           <b>edit</b> the copy in place. Same controls as a brief here: changes save as you go,
-           the activity log says who changed what, and a checkpoint rolls the whole thing back.` },
+    body: `Reviewers open the link and work on the page itself. Comment on anything, or edit the
+           copy in place. The activity log records who changed what, and a checkpoint rolls the
+           deck back to a known good state whenever you want one.` },
   { art: "assets/help/publish-deck.svg",
     title: "Run <code>/publish-microsite</code>",
-    body: `This is the gate. The password goes on, every comment and edit trail is stripped out of
-           the build, the draft watermark comes off, and the release is tagged. What the client
-           opens carries none of the review history.` },
+    body: `The final gate. The password goes on, every comment and edit trail is scrubbed from
+           the build, the watermark comes off, the release is tagged, and analytics carries
+           through with your own team's traffic filtered out — so the report measures the
+           client, not you.` },
   { art: "assets/help/report-deck.svg",
     title: "Read the 7-day report",
-    body: `Publishing schedules <code>/report</code> for a week later — did they open it, what did
-           they read, what did they download, what's the follow-up. You rarely run it by hand.` },
+    body: `Publishing schedules <code>/report</code> for a week later, and you can run it by hand
+           any time. It reads the deck's live analytics into a one-pager: did they open it, what
+           did they read, what held their attention longest, what did they download — and what
+           they never reached.` },
 ];
 
 const HELP_NOTES = {
