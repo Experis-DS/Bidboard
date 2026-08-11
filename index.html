@@ -50,6 +50,7 @@
       <div class="menu-pop" id="morePop" hidden>
         <button data-more="checkpoint">Save a checkpoint</button>
         <button data-more="restore">Restore a checkpoint…</button>
+        <button data-more="tidy">Remove untouched blank rows…</button>
         <hr>
         <button data-more="reimport">Re-import from a newer pack</button>
         <button data-more="version">Renderer &amp; schema versions</button>
@@ -62,7 +63,10 @@
 <aside class="act-panel" id="actPanel" hidden aria-label="Activity log">
   <div class="act-head">
     <b>Activity</b>
-    <button class="btn btn-sm" id="actClose">Close</button>
+    <span class="act-head-right">
+      <button class="btn btn-sm" id="actClear" title="Mark everything as seen. Nothing is deleted.">Clear</button>
+      <button class="btn btn-sm" id="actClose">Close</button>
+    </span>
   </div>
   <div class="act-body" id="actBody"></div>
 </aside>

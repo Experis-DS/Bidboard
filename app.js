@@ -550,11 +550,30 @@ const editorName = () => {
   return n;
 };
 
+/* Continue the pack's own numbering rather than minting a timestamp. "Q-750AX"
+   is unreadable, does not sort, wraps the id column, and reads as machine
+   output sitting next to Q-1. Pad to whatever width the pack already uses, so
+   a pack numbering A-01 keeps getting A-06 and not A-6. */
+function nextId(pack, coll, prefix) {
+  const ids = (pack?.[coll] || []).map((x) => String(x.id || ""));
+  const mine = ids.map((id) => new RegExp(`^${prefix}-(\\d+)$`).exec(id)).filter(Boolean);
+  const width = Math.max(1, ...mine.map((m) => m[1].length));
+  const max = Math.max(0, ...mine.map((m) => Number(m[1])));
+
+  // A pack numbering its rows some other way (R-014a, REQ-3) must not have a
+  // collision invented for it — fall back to a suffix that cannot clash.
+  if (!mine.length && ids.length) return `${prefix}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+  let n = max + 1;
+  const taken = new Set(ids);
+  while (taken.has(`${prefix}-${String(n).padStart(width, "0")}`)) n++;
+  return `${prefix}-${String(n).padStart(width, "0")}`;
+}
+
 const NEW_ITEM = {
-  actionItems: () => ({ id: "A-" + Date.now().toString(36).slice(-5).toUpperCase(), task: "New item", owner: null, status: "open", due: "" }),
-  questions:   () => ({ id: "Q-" + Date.now().toString(36).slice(-5).toUpperCase(), topic: "General", text: "New question" }),
-  risks:       () => ({ id: "K-" + Date.now().toString(36).slice(-5).toUpperCase(), severity: "med", title: "New risk", detail: "", mitigation: "" }),
-  rules:       () => ({ id: "C-" + Date.now().toString(36).slice(-5).toUpperCase(), label: "New rule", checked: false, mandatory: false }),
+  actionItems: (p) => ({ id: nextId(p, "actionItems", "A"), task: "New item", owner: null, status: "open", due: "" }),
+  questions:   (p) => ({ id: nextId(p, "questions", "Q"), topic: "General", text: "New question" }),
+  risks:       (p) => ({ id: nextId(p, "risks", "K"), severity: "med", title: "New risk", detail: "", mitigation: "" }),
+  rules:       (p) => ({ id: nextId(p, "rules", "C"), label: "New rule", checked: false, mandatory: false }),
 };
 
 async function applyEdit(change) {
@@ -603,7 +622,7 @@ async function applyEdit(change) {
 
   let entry;
   if (change.kind === "add") {
-    const value = (NEW_ITEM[change.coll] || (() => ({ id: "X-" + Date.now().toString(36) })))();
+    const value = (NEW_ITEM[change.coll] || (() => ({ id: nextId(BRIEF.pack, change.coll, "X") })))(BRIEF.pack);
     entry = { id: `add-${change.coll}-${value.id}`, kind: "add", collection: change.coll, value, editor: who, at };
   } else if (change.kind === "remove") {
     /* Deleting a row that an override added: drop the "add" instead of layering
@@ -661,12 +680,34 @@ function flashSaved() {
   flashSaved._t = setTimeout(() => { el.dataset.on = ""; }, 1400);
 }
 
+/* The badge counts what YOU have not seen, not everything that ever happened.
+   A total is useless the moment a brief has been worked on for a week — 475
+   tells you nothing and stops being read. Read state is per person, so it
+   lives in localStorage rather than being written back to the shared log. */
+const seenKey = (briefId) => `hub.actSeen.${briefId}`;
+const lastSeen = (briefId) => localStorage.getItem(seenKey(briefId)) || "";
+
 async function refreshActivityCount() {
   const el = $("#actCount");
   if (!el || !BRIEF) return;
-  const n = (await listActivity(BRIEF.briefId)).length;
-  el.textContent = n ? String(n) : "";
+  const since = lastSeen(BRIEF.briefId);
+  const rows = await listActivity(BRIEF.briefId);
+  const n = since ? rows.filter((a) => String(a.at) > since).length : rows.length;
+  el.textContent = n > 99 ? "99+" : String(n);
   el.hidden = !n;
+  el.title = n ? `${n} change${n === 1 ? "" : "s"} since you last cleared this` : "";
+}
+
+/* Clear marks everything to date as seen. It does not delete anything — an
+   audit trail you can empty is not an audit trail. */
+async function clearActivityBadge() {
+  if (!BRIEF) return;
+  localStorage.setItem(seenKey(BRIEF.briefId), new Date().toISOString());
+  await refreshActivityCount();
+  const body = $("#actBody");
+  if (body) body.querySelectorAll(".act-row.is-new").forEach((r) => r.classList.remove("is-new"));
+  const btn = $("#actClear");
+  if (btn) { btn.textContent = "Cleared"; setTimeout(() => { btn.textContent = "Clear"; }, 1400); }
 }
 
 async function toggleEdit() {
@@ -707,9 +748,10 @@ async function openActivity() {
     field: a.field || a.elementId, elementId: a.elementId, kind: "import",
   }));
   const all = [...rows, ...imported].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const since = lastSeen(BRIEF.briefId);
 
   body.innerHTML = all.length ? all.map((a) => `
-    <button class="act-row" ${a.elementId ? `data-jump="${esc(a.elementId)}"` : ""}>
+    <button class="act-row${since && String(a.at) > since ? " is-new" : ""}" ${a.elementId ? `data-jump="${esc(a.elementId)}"` : ""}>
       <span class="act-kind" data-k="${esc(a.kind || "human")}"></span>
       <span class="act-main">
         <span class="act-what">${esc(a.field || a.section || "changed")}</span>
@@ -813,6 +855,7 @@ function bindBriefBar(briefId, idx, pack, api) {
 
   $("#btnActivity").onclick = () => openActivity();
   $("#actClose").onclick = () => { $("#actPanel").hidden = true; };
+  $("#actClear").onclick = clearActivityBadge;
 
   more.onclick = async (e) => {
     const what = e.target.dataset.more;
@@ -830,6 +873,55 @@ function bindBriefBar(briefId, idx, pack, api) {
       </dl>
       <p class="small muted" style="margin-top:14px">A redeploy of this site updates the renderer for
       every pursuit at once — packs are data, so nothing needs re-importing.</p>`);
+    /* Bulk cleanup for rows that were added and never filled in. Deliberately
+       narrow: only rows an override created, still carrying the exact default
+       text, with no field edits of their own. Anything a person typed into is
+       left alone — a cleanup that removes real work is worse than the mess. */
+    if (what === "tidy") {
+      const who = editorName(); if (!who) return;
+      const DEFAULTS = {
+        actionItems: ["task", "New item"], questions: ["text", "New question"],
+        risks: ["title", "New risk"], rules: ["label", "New rule"],
+      };
+      const overrides = await getElements(briefId);
+      const edited = new Set();
+      for (const o of overrides) {
+        const m = /^([a-zA-Z]+)\[id=([^\]]+)\]/.exec(o.path || "");
+        if (o.kind === "set" && m) edited.add(`${m[1]}|${m[2]}`);
+      }
+      const junk = overrides.filter((o) => {
+        if (o.kind !== "add") return false;
+        const spec = DEFAULTS[o.collection];
+        if (!spec) return false;
+        const [field, def] = spec;
+        if (String(o.value?.[field] ?? "").trim() !== def) return false;
+        return !edited.has(`${o.collection}|${o.value.id}`);
+      });
+
+      if (!junk.length) {
+        modal(`<h2 class="h1" style="font-size:20px">Nothing to remove</h2>
+          <p class="sub" style="margin-top:8px">Every added row has either been edited or is not a
+          blank default. Imported content is never touched by this.</p>`);
+        return;
+      }
+      const byColl = junk.reduce((a, o) => (a[o.collection] = (a[o.collection] || 0) + 1, a), {});
+      const summary = Object.entries(byColl).map(([c, n]) => `${n} in ${c}`).join(", ");
+      if (!confirm(`Remove ${junk.length} untouched blank row${junk.length === 1 ? "" : "s"}?\n\n${summary}\n\nOnly rows still showing their default text are removed. Nothing imported, and nothing anyone has typed into, is affected.`)) return;
+
+      for (const o of junk) await deleteElement(briefId, o.id);
+      await appendActivity(briefId, {
+        kind: "human", editor: who, section: "cleanup", field: "removed blank rows",
+        before: null, after: `${junk.length} removed (${summary})`,
+      });
+      BRIEF.pack = await getPack(briefId);
+      BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
+      refreshActivityCount();
+      modal(`<h2 class="h1" style="font-size:20px">Removed ${junk.length} blank row${junk.length === 1 ? "" : "s"}</h2>
+        <p class="sub" style="margin-top:8px">${esc(summary)}. This is itself logged, and a checkpoint
+        saved before now still contains them.</p>`);
+      return;
+    }
+
     if (what === "checkpoint") {
       const who = editorName(); if (!who) return;
       const note = prompt("Name this checkpoint (optional):") || "";

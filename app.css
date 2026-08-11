@@ -665,3 +665,15 @@ body[data-embed="1"] .rb-nav, body[data-embed="1"] .rb-main { --rb-head-h: 0px; 
   .act-panel { width: 100%; }
   .edit-state { display: none; }
 }
+
+
+/* ---- activity: unread ----
+   The badge counts what you have not cleared, not the lifetime total. A count
+   that only grows is one nobody reads. */
+.act-head-right{ display:flex; align-items:center; gap:8px; }
+
+.act-row.is-new{ position:relative; }
+.act-row.is-new::after{
+  content:""; position:absolute; left:2px; top:50%; transform:translateY(-50%);
+  width:5px; height:5px; border-radius:50%; background:var(--accent);
+}
