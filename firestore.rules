@@ -56,16 +56,25 @@ service cloud.firestore {
       // backstop against a client that ignores that.
       match /pack/{chunkId} {
         allow read: if open();
-        allow write: if open()
+        // create/update, NOT write. On a delete, request.resource is null, so a
+        // size check inside `allow write` rejects every delete — and the client
+        // sees nothing but a permission error it was told to ignore. That is
+        // how stale chunks survive a re-import.
+        allow create, update: if open()
           && request.resource.size() < 950 * 1024;
+        allow delete: if open();
       }
 
       // Every edit anyone makes. Never written into the pack — that is what
       // keeps re-import non-destructive.
       match /elements/{elementId} {
         allow read: if open();
-        allow write: if open()
+        allow create, update: if open()
           && request.resource.size() < 200 * 1024;
+        // Deleting an override is how a row added by mistake is removed, and
+        // how the blank-row cleanup works. `allow write` with a size check
+        // silently forbade both: request.resource is null on a delete.
+        allow delete: if open();
       }
 
       // Append-only in practice. Rules enforce it: an activity row cannot be
