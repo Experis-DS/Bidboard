@@ -818,19 +818,34 @@ async function openRestore(briefId) {
 /* Resolve only documents that actually travelled with the bundle. Anything else
    returns nothing and the renderer prints the row as plain text — a link that
    404s is worse than no link. */
+/* Documents live in the importing browser only — there is no Cloud Storage in
+   this build. The Storage lookup that used to sit here referenced an SDK that
+   is no longer loaded, so it threw on every call and fell through to the cache
+   by accident. Now it just reads the cache, and says so when it comes up empty. */
 async function resolveAssetUrls(idx, pack) {
   const out = {};
   for (const doc of pack.documents || []) {
     if (!doc.href || doc.unreadable) continue;
-    if (store.mode === "shared" && store._fb && navigator.onLine) {
-      const { st, bucket, root } = store._fb;
-      try { out[doc.href] = await st.getDownloadURL(st.ref(bucket, `${root}/${idx.briefId}/${doc.href}`)); continue; } catch {}
-    }
     const bytes = await getAssetBytes(idx.briefId, doc.href);
-    if (bytes) out[doc.href] = URL.createObjectURL(new Blob([bytes]));
+    if (bytes) out[doc.href] = URL.createObjectURL(new Blob([bytes], { type: mimeFor(doc) }));
   }
   return out;
 }
+
+/* Without a type, a Blob URL downloads as an unnamed binary and a PDF will not
+   open in the browser's viewer. */
+const MIME = {
+  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+  svg: "image/svg+xml", txt: "text/plain", csv: "text/csv", html: "text/html",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+};
+const mimeFor = (doc) => MIME[String(doc.type || (doc.file || "").split(".").pop() || "").toLowerCase()]
+  || "application/octet-stream";
 
 function bindBriefBar(briefId, idx, pack, api) {
   const more = $("#morePop");

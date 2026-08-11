@@ -217,8 +217,11 @@ function secSnapshot(p, d, ctx) {
        </div>`
     : `<p class="rb-empty" style="margin-bottom:var(--rb-s4)">No submission deadline captured in the pack.</p>`;
 
-  const askParas = [p.ask?.summary, p.ask?.background].filter(has)
-    .map((t) => `<p class="rb-ask">${esc(t)}</p>`).join("");
+  // Editable in place, like every other piece of prose in the brief. Shown even
+  // when empty in edit mode, or there is nothing to click to start writing.
+  const askParas = [["ask.summary", p.ask?.summary], ["ask.background", p.ask?.background]]
+    .filter(([, t]) => has(t) || ctx.edit)
+    .map(([path, t]) => `<p${edIn(ctx, path, "rb-ask")}>${esc(t)}</p>`).join("");
 
   const verdict = has(p.verdict)
     ? `<div class="rb-zone">
@@ -259,8 +262,8 @@ function secSnapshot(p, d, ctx) {
     <div class="rb-snapshot">
       <div class="rb-masthead">
         <div>
-          <div class="rb-eyebrow">${esc(p.client)}</div>
-          <h1 class="rb-h1">${esc(p.title || "RFP brief")}</h1>
+          <div${edIn(ctx, "client", "rb-eyebrow")}>${esc(p.client)}</div>
+          <h1${edIn(ctx, "title", "rb-h1")}>${esc(p.title || "RFP brief")}</h1>
         </div>
         <div class="rb-actions">
           <button class="rb-btn rb-btn-primary" data-action="start-meeting">Start meeting</button>
@@ -715,12 +718,21 @@ function secQuestions(p, d, ctx) {
       <option value="__new">New topic…</option>
     </select>`;
 
+  /* A running number in reading order, recomputed on every render, so adding,
+     deleting or moving a question renumbers the list without touching any id.
+     The id underneath never changes — overrides, the activity log and the
+     requirement links all address it, and renumbering those would break them.
+     It stays on the row as a tooltip for anyone chasing an internal reference. */
+  const displayNo = new Map();
+  topics.forEach((t) => qs.filter((q) => topicOf(q) === t)
+    .forEach((q) => displayNo.set(q.id, displayNo.size + 1)));
+
   const rows = (t) => qs.filter((q) => topicOf(q) === t).map((q) => `
     <li data-el="question-${esc(q.id)}" data-qid="${esc(q.id)}"${ctx.edit ? ' class="rb-drag"' : ""}>
       <div class="rb-row" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "210px" : "70px"}">
-        <span class="rb-id">${ctx.edit
+        <span class="rb-id" title="${esc(q.id)}">${ctx.edit
           ? `<span class="rb-grip" draggable="true" role="button" tabindex="0"
-                   aria-label="Move ${esc(q.id)} to another section">⠿</span>` : ""}${esc(q.id)}</span>
+                   aria-label="Move ${esc(q.id)} to another section">⠿</span>` : ""}Q-${displayNo.get(q.id)}</span>
         <span${edIn(ctx, `questions[id=${q.id}].text`, "rb-row-text")}>${esc(q.text)}</span><span></span><span></span>
         <span class="rb-meta r">${ctx.edit
           ? topicSelect(q) + delBtn(ctx, "questions", q.id)
@@ -758,24 +770,38 @@ function secQuestions(p, d, ctx) {
 
 /* Plain text, because the destination is a portal form or an email, and every
    richer format arrives there as a formatting problem. */
-function questionsToText(p) {
+/* Shared by every export so a .txt and a .docx of the same brief agree, and
+   both agree with the screen. */
+function orderedQuestions(p) {
   const qs = arr(p.questions);
+  const topicOf = (q) => q.topic || "General";
+  const declared = arr(p.questionTopics).filter((t) => typeof t === "string" && t.trim());
+  const inUse = [...new Set(qs.map(topicOf))];
+  const extras = inUse.filter((t) => !declared.includes(t)).sort((a, b) =>
+    a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b));
+  const topics = [...new Set([...declared, ...extras])].filter((t) => inUse.includes(t));
+  const out = [];
+  for (const t of topics) {
+    for (const q of qs.filter((x) => topicOf(x) === t)) out.push({ ...q, topic: t, no: out.length + 1 });
+  }
+  return { topics, rows: out };
+}
+
+function questionsToText(p) {
+  const { topics, rows } = orderedQuestions(p);
   const client = p.client || p.meta?.client || "";
   const title = p.title || p.meta?.title || "";
-  const L = [];
-  L.push("QUESTIONS FOR CLIENT");
+  const L = ["QUESTIONS FOR CLIENT"];
   if (client) L.push(client + (title ? ` — ${title}` : ""));
   const due = p.dates?.qaDeadline || p.qaDeadline;
   if (due) L.push(`Q&A deadline: ${due}`);
-  L.push(`${qs.length} question${qs.length === 1 ? "" : "s"}`);
+  L.push(`${rows.length} question${rows.length === 1 ? "" : "s"}`);
   L.push("");
-  const topics = [...new Set(qs.map((q) => q.topic || "General"))];
   for (const t of topics) {
-    const inTopic = qs.filter((q) => (q.topic || "General") === t);
     L.push(t.toUpperCase());
     L.push("-".repeat(t.length));
-    for (const q of inTopic) {
-      L.push(`${q.id}  ${q.text}`);
+    for (const q of rows.filter((x) => x.topic === t)) {
+      L.push(`Q-${q.no}  ${q.text}`);
       if (q.requirementId) L.push(`      ref: ${q.requirementId}`);
     }
     L.push("");
@@ -786,14 +812,12 @@ function questionsToText(p) {
 /* CSV, for the teams who track Q&A in a sheet. Quoting is not optional: these
    are sentences, and they contain commas and quotes as a matter of course. */
 function questionsToCsv(p) {
-  const qs = arr(p.questions);
+  const { rows } = orderedQuestions(p);
   const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const lines = [["Topic", "ID", "Question", "Requirement"].map(cell).join(",")];
-  for (const q of qs) {
-    lines.push([q.topic || "General", q.id, q.text, q.requirementId || ""].map(cell).join(","));
-  }
+  const lines = [["#", "Section", "Question", "Requirement"].map(cell).join(",")];
+  for (const q of rows) lines.push([`Q-${q.no}`, q.topic, q.text, q.requirementId || ""].map(cell).join(","));
   // BOM so Excel opens UTF-8 correctly instead of mangling the first column.
-  return "﻿" + lines.join("\r\n");
+  return "\ufeff" + lines.join("\r\n");
 }
 
 /* ---------- a real .docx ----------
@@ -850,7 +874,7 @@ function zipStore(files) {
 }
 
 function questionsToDocx(p) {
-  const qs = arr(p.questions);
+  const { topics, rows } = orderedQuestions(p);
   const x = (v) => String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   const para = (text, { size = 22, bold = false, before = 0, caps = false } = {}) =>
     `<w:p><w:pPr><w:spacing w:before="${before}" w:after="80"/></w:pPr>` +
@@ -862,13 +886,12 @@ function questionsToDocx(p) {
   const title = p.title || p.meta?.title || "";
   const body = [para("Questions for client", { size: 32, bold: true })];
   if (client) body.push(para(client + (title ? ` — ${title}` : ""), { size: 20 }));
-  body.push(para(`${qs.length} question${qs.length === 1 ? "" : "s"}`, { size: 18 }));
+  body.push(para(`${rows.length} question${rows.length === 1 ? "" : "s"}`, { size: 18 }));
 
-  const topics = [...new Set(qs.map((q) => q.topic || "General"))];
   for (const t of topics) {
     body.push(para(t, { size: 24, bold: true, before: 320, caps: true }));
-    for (const q of qs.filter((v) => (v.topic || "General") === t)) {
-      body.push(para(`${q.id}   ${q.text}`, { size: 22 }));
+    for (const q of rows.filter((x) => x.topic === t)) {
+      body.push(para(`Q-${q.no}   ${q.text}`, { size: 22 }));
       if (q.requirementId) body.push(para(`ref: ${q.requirementId}`, { size: 18 }));
     }
   }
@@ -945,12 +968,17 @@ function secDecisions(p) {
 function secDocuments(p, d, ctx) {
   const docs = arr(p.documents);
   if (!docs.length) return head("Document map") + `<p class="rb-empty">No source documents recorded.</p>`;
+  const anyMissing = docs.some((doc) => !doc.unreadable && !ctx.resolveDoc(doc));
   return head("Document map", "A launcher, not a bibliography. Hover any file for a preview.") +
+    (anyMissing ? `<div class="rb-notice">Source files stay on the machine that imported the
+       pack — they are never uploaded, because this site has no sign-in. Everyone sees the same
+       brief; the files themselves open only where they were imported.</div>` : "") +
     `<div>${docs.map((doc) => {
       const href = ctx.resolveDoc(doc);
       const name = doc.unreadable || !href
         ? `<span class="rb-doc-name">${esc(doc.file)}</span> <span class="rb-src">${
-            doc.unreadable ? "unprocessed — could not be read" : "not linked in this mode"}</span>`
+            doc.unreadable ? "unprocessed — could not be read"
+            : "not on this device — open it from the machine that imported the pack"}</span>`
         : `<a class="rb-doc-name rb-doclink" href="${esc(href)}" ${docTarget(doc)} data-doc="${esc(doc.file)}">${esc(doc.file)}</a>`;
       return `<div class="rb-doc ${doc.unreadable ? "is-unreadable" : ""}" data-el="doc-${esc(doc.file)}">
         ${doc.thumb ? `<img class="rb-doc-thumb" src="${esc(doc.thumb)}" alt="">`

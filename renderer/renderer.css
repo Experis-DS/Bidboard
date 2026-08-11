@@ -174,7 +174,12 @@
   font-size: 13px; font-weight: 650; white-space: nowrap;
 }
 .rb-countdown b { font-size: 15px; font-variant-numeric: tabular-nums; }
-.rb-deadline-meta { color: var(--rb-gray-2); font-size: var(--rb-t-small); margin-left: auto; text-align: right; }
+/* Its own line, left aligned with everything above it. Pushed right with
+   margin-left:auto it read as a second column that nothing else lined up with. */
+.rb-deadline-meta {
+  color: var(--rb-gray-2); font-size: var(--rb-t-small);
+  flex-basis: 100%; margin-left: 0; text-align: left; margin-top: 2px;
+}
 
 .rb-deadline.is-urgent { border-top-color: var(--rb-urgent); }
 .rb-deadline.is-urgent .rb-deadline-value { color: var(--rb-urgent); }
@@ -752,3 +757,9 @@ details.rb-qgroup > summary .rb-nav-count{ margin-left:auto; }
 .rb-qgroup.is-after{ box-shadow:inset 0 -2px 0 0 var(--rb-accent, #5241B5); }
 
 @media (prefers-reduced-motion: reduce){ .rb-chev{ transition:none; } }
+
+.rb-notice{
+  margin:var(--rb-s3) 0; padding:11px 14px; border-radius:8px;
+  background:var(--rb-fill, #F8F8FB); border:1px solid var(--rb-line, #E6E5F0);
+  font-size:var(--rb-t-small); color:var(--rb-gray, #5F6169); line-height:1.55;
+}
