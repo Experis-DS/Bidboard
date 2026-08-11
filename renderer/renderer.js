@@ -698,9 +698,11 @@ function secQuestions(p, d, ctx) {
     </select>`;
 
   const rows = (t) => qs.filter((q) => topicOf(q) === t).map((q) => `
-    <li data-el="question-${esc(q.id)}" data-qid="${esc(q.id)}"${ctx.edit ? ' draggable="true" class="rb-drag"' : ""}>
-      <div class="rb-row" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "190px" : "70px"}">
-        <span class="rb-id">${esc(q.id)}</span>
+    <li data-el="question-${esc(q.id)}" data-qid="${esc(q.id)}"${ctx.edit ? ' class="rb-drag"' : ""}>
+      <div class="rb-row" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "210px" : "70px"}">
+        <span class="rb-id">${ctx.edit
+          ? `<span class="rb-grip" draggable="true" role="button" tabindex="0"
+                   aria-label="Move ${esc(q.id)} to another section">⠿</span>` : ""}${esc(q.id)}</span>
         <span${edIn(ctx, `questions[id=${q.id}].text`, "rb-row-text")}>${esc(q.text)}</span><span></span><span></span>
         <span class="rb-meta r">${ctx.edit
           ? topicSelect(q) + delBtn(ctx, "questions", q.id)
@@ -977,6 +979,16 @@ export function renderBrief(pack, mount, opts = {}) {
   };
   let current = pack;
 
+  /* Every listener below is registered on `mount`, and `mount` survives a
+     re-render — so without this, each update() stacked another full set. After
+     four edits one click on "Add a question" fired five times, and the earlier
+     copies were still holding a stale `current`. Abort the previous render's
+     listeners before wiring this one. */
+  mount.__rbAbort?.abort();
+  const rbAC = new AbortController();
+  mount.__rbAbort = rbAC;
+  const on = (type, fn) => mount.addEventListener(type, fn, { signal: rbAC.signal });
+
   const d = derive(pack);
   o.onDerive({
     readiness: d.readiness.ok ? d.readiness.value : null,
@@ -1043,7 +1055,7 @@ export function renderBrief(pack, mount, opts = {}) {
     o.onNavigate(target);
   };
 
-  mount.addEventListener("click", (e) => {
+  on("click", (e) => {
     const nav = e.target.closest("[data-goto]");
     if (nav) { e.preventDefault(); show(nav.dataset.goto, nav.dataset.el); return; }
     const toggle = e.target.closest("[data-exp-toggle]");
@@ -1101,7 +1113,7 @@ export function renderBrief(pack, mount, opts = {}) {
      Text commits on blur and does NOT re-render — the DOM already shows what
      you typed, and re-rendering mid-sentence would steal the caret. */
   if (ctx.edit) {
-    mount.addEventListener("change", (e) => {
+    on("change", (e) => {
       const f = e.target.closest("[data-edit]");
       if (!f) return;
       const field = f.dataset.edit;
@@ -1124,7 +1136,7 @@ export function renderBrief(pack, mount, opts = {}) {
       });
     });
 
-    mount.addEventListener("focusin", (e) => {
+    on("focusin", (e) => {
       const t = e.target.closest("[data-etext]");
       if (t) t.dataset.before = t.textContent;
     });
@@ -1132,13 +1144,13 @@ export function renderBrief(pack, mount, opts = {}) {
     /* Renaming a section is not a field edit — it rewrites the topic on every
        question filed under it. It gets its own change kind so the activity log
        records one "renamed" line rather than one line per question. */
-    mount.addEventListener("keydown", (e) => {
+    on("keydown", (e) => {
       const t = e.target.closest("[data-topic-edit]");
       if (!t) return;
       if (e.key === "Escape") { t.textContent = t.dataset.topicEdit; t.blur(); }
       if (e.key === "Enter") { e.preventDefault(); t.blur(); }
     });
-    mount.addEventListener("focusout", (e) => {
+    on("focusout", (e) => {
       const t = e.target.closest("[data-topic-edit]");
       if (!t) return;
       const from = t.dataset.topicEdit;
@@ -1152,13 +1164,13 @@ export function renderBrief(pack, mount, opts = {}) {
       o.onEdit({ kind: "rename-topic", from, to, rerender: true,
                  label: `section “${from}” → “${to}”` });
     });
-    mount.addEventListener("keydown", (e) => {
+    on("keydown", (e) => {
       const t = e.target.closest("[data-etext]");
       if (!t) return;
       if (e.key === "Escape") { t.textContent = t.dataset.before ?? t.textContent; t.blur(); }
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); t.blur(); }
     });
-    mount.addEventListener("focusout", (e) => {
+    on("focusout", (e) => {
       const t = e.target.closest("[data-etext]");
       if (!t) return;
       const before = t.dataset.before ?? "";
@@ -1176,20 +1188,24 @@ export function renderBrief(pack, mount, opts = {}) {
        whole band is a target rather than a thin line between rows — ordering
        within a topic is not meaningful here, only which topic it belongs to. */
     let dragId = null;
-    mount.addEventListener("dragstart", (e) => {
-      const li = e.target.closest("li[data-qid]");
+    on("dragstart", (e) => {
+      // Only the grip starts a move. The row cannot be draggable itself: its
+      // text is contenteditable, so dragging anywhere on it starts a text drag
+      // and the row never moves.
+      const grip = e.target.closest(".rb-grip");
+      const li = grip && grip.closest("li[data-qid]");
       if (!li) return;
       dragId = li.dataset.qid;
       li.classList.add("is-dragging");
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", dragId);
     });
-    mount.addEventListener("dragend", () => {
+    on("dragend", () => {
       dragId = null;
       mount.querySelectorAll(".is-dragging,.is-over").forEach((el) =>
         el.classList.remove("is-dragging", "is-over"));
     });
-    mount.addEventListener("dragover", (e) => {
+    on("dragover", (e) => {
       const g = e.target.closest(".rb-qgroup[data-topic]");
       if (!g || !dragId) return;
       e.preventDefault();
@@ -1199,11 +1215,11 @@ export function renderBrief(pack, mount, opts = {}) {
         g.classList.add("is-over");
       }
     });
-    mount.addEventListener("dragleave", (e) => {
+    on("dragleave", (e) => {
       const g = e.target.closest(".rb-qgroup[data-topic]");
       if (g && !g.contains(e.relatedTarget)) g.classList.remove("is-over");
     });
-    mount.addEventListener("drop", (e) => {
+    on("drop", (e) => {
       const g = e.target.closest(".rb-qgroup[data-topic]");
       const id = dragId || e.dataTransfer.getData("text/plain");
       if (!g || !id) return;
@@ -1228,7 +1244,7 @@ export function renderBrief(pack, mount, opts = {}) {
       });
     });
 
-    mount.addEventListener("click", (e) => {
+    on("click", (e) => {
       const del = e.target.closest("[data-del]");
       if (del) {
         e.preventDefault();
@@ -1262,7 +1278,7 @@ export function renderBrief(pack, mount, opts = {}) {
     });
   }
 
-  attachPopovers(mount, docsByName, ctx);
+  attachPopovers(mount, docsByName, ctx, rbAC.signal);
   show(o.section);
 
   /* Re-render in place, keeping the reader where they were. */
@@ -1280,12 +1296,16 @@ export function renderBrief(pack, mount, opts = {}) {
     metrics: d,
     goto: show,
     update,
-    destroy: () => { mount.innerHTML = ""; mount.className = ""; },
+    destroy: () => { rbAC.abort(); mount.__rbAbort = null; mount.innerHTML = ""; mount.className = ""; },
   };
 }
 
 /* ---------- document hover previews (vanilla positioning) ---------- */
-function attachPopovers(root, docsByName, ctx) {
+function attachPopovers(root, docsByName, ctx, signal) {
+  // Same accumulation problem as renderBrief, and worse for the two window
+  // listeners: those outlive the mount entirely and would pile up for the life
+  // of the page.
+  const opt = { signal };
   const pop = root.querySelector(".rb-pop");
   let openTimer = null, closeTimer = null, current = null;
 
@@ -1330,16 +1350,16 @@ function attachPopovers(root, docsByName, ctx) {
     clearTimeout(closeTimer);
     clearTimeout(openTimer);
     openTimer = setTimeout(() => open(a), 200);      // intent delay
-  });
+  }, opt);
   root.addEventListener("mouseout", (e) => {
     if (!e.target.closest("[data-doc]")) return;
     clearTimeout(openTimer);
     closeTimer = setTimeout(close, 100);             // grace period into the popover
-  });
-  pop.addEventListener("mouseenter", () => clearTimeout(closeTimer));
-  pop.addEventListener("mouseleave", close);
-  root.addEventListener("focusin", (e) => { const a = e.target.closest("[data-doc]"); if (a) open(a); });
-  root.addEventListener("focusout", () => { closeTimer = setTimeout(close, 100); });
-  addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
-  addEventListener("scroll", close, true);
+  }, opt);
+  pop.addEventListener("mouseenter", () => clearTimeout(closeTimer), opt);
+  pop.addEventListener("mouseleave", close, opt);
+  root.addEventListener("focusin", (e) => { const a = e.target.closest("[data-doc]"); if (a) open(a); }, opt);
+  root.addEventListener("focusout", () => { closeTimer = setTimeout(close, 100); }, opt);
+  addEventListener("keydown", (e) => { if (e.key === "Escape") close(); }, opt);
+  addEventListener("scroll", close, { capture: true, signal });
 }

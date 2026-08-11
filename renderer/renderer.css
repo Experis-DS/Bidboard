@@ -677,12 +677,18 @@
    It is a ::before on the id cell, NOT an extra element: .rb-row is a
    five-column grid with fixed tracks, and a sixth child shifts every cell one
    column right, which drops the question text into the 70px column. */
-.rb-drag{ cursor:grab; }
-.rb-drag:active{ cursor:grabbing; }
-.rb-drag .rb-id::before{
-  content:"⠿"; color:var(--rb-gray-3, #A9ABB2); font-size:11px;
-  letter-spacing:-1px; margin-right:7px; user-select:none;
+/* The grip is the drag handle, and it has to be a real element: the row's
+   question text is contenteditable, so dragging from anywhere else starts a
+   text drag and the row never moves. It lives inside the id cell so it adds no
+   child to the five-column row grid. */
+.rb-grip{
+  display:inline-block; cursor:grab; user-select:none;
+  color:var(--rb-gray-3, #A9ABB2); font-size:11px; letter-spacing:-1px;
+  margin-right:7px; padding:2px 1px; border-radius:4px;
 }
+.rb-grip:hover{ color:var(--rb-ink, #22242B); background:var(--rb-line-2, #F0EFF6); }
+.rb-grip:active{ cursor:grabbing; }
+.rb-grip:focus-visible{ outline:2px solid var(--rb-accent, #5241B5); outline-offset:1px; }
 .rb-drag.is-dragging{ opacity:.4; }
 
 .rb-qgroup{ border-radius:8px; transition:background .12s, box-shadow .12s; }
@@ -703,4 +709,14 @@
 
 @media (prefers-reduced-motion: reduce){
   .rb-qgroup{ transition:none; }
+}
+
+
+/* Editable text takes the I-beam. It was inheriting grab from the draggable
+   row, which reads as "this moves" on the one thing that does not. */
+.rb-etext, .rb .rb-etext{ cursor: text; }
+.rb-etext:hover{ background: var(--rb-line-2, #F0EFF6); border-radius: 4px; }
+.rb-etext:focus{
+  outline: none; background: #fff; border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--rb-accent, #5241B5), 0 0 0 4px var(--rb-accent-soft, #EEEBFA);
 }

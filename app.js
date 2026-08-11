@@ -4,7 +4,7 @@
    The shell finds a pursuit. The renderer draws it. No overlap.
    ============================================================ */
 
-import { initStore, store, listPursuits, getPack, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints } from "./store.js";
+import { initStore, store, listPursuits, getPack, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement } from "./store.js";
 import { validate, askLine, CURRENT_SCHEMA, MIN_SCHEMA } from "./schema.js";
 import { unzip, asJson } from "./unzip.js";
 import { renderBrief, derive, RENDERER_VERSION } from "./renderer/renderer.js";
@@ -606,6 +606,30 @@ async function applyEdit(change) {
     const value = (NEW_ITEM[change.coll] || (() => ({ id: "X-" + Date.now().toString(36) })))();
     entry = { id: `add-${change.coll}-${value.id}`, kind: "add", collection: change.coll, value, editor: who, at };
   } else if (change.kind === "remove") {
+    /* Deleting a row that an override added: drop the "add" instead of layering
+       a "remove" on top of it. Both would exist, and applyOverrides orders by
+       timestamp — which for a row added and deleted in the same session is the
+       same millisecond, so the row would reappear on a coin flip. */
+    const addId = `add-${change.coll}-${change.itemId}`;
+    const overrides = await getElements(briefId);
+    if (overrides.some((o) => o.id === addId)) {
+      await deleteElement(briefId, addId);
+      // Any field edits made to that row are now pointing at nothing.
+      for (const o of overrides) {
+        if (o.kind === "set" && String(o.path || "").startsWith(`${change.coll}[id=${change.itemId}]`)) {
+          await deleteElement(briefId, o.id);
+        }
+      }
+      await appendActivity(briefId, {
+        kind: "human", editor: who, elementId: change.elementId,
+        section: change.coll, field: "deleted", before: change.itemId, after: "(deleted)",
+      });
+      BRIEF.pack = await getPack(briefId);
+      BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+      refreshActivityCount();
+      flashSaved();
+      return;
+    }
     entry = { id: `remove-${change.coll}-${change.itemId}`, kind: "remove", collection: change.coll, itemId: change.itemId, editor: who, at };
   } else {
     entry = { id: change.elementId, kind: "set", path: change.path, value: change.value, editor: who, at };

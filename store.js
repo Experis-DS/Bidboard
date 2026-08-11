@@ -307,6 +307,20 @@ export async function setElement(briefId, elementId, entry) {
   await idbPut("elements", list, briefId);
 }
 
+/* Drop a single override. Used when deleting a row that an override itself
+   added: writing a "remove" for it would leave both, and which one wins depends
+   on two timestamps that are usually the same millisecond. Deleting the "add"
+   is unambiguous, and it keeps the override set from growing with pairs that
+   cancel each other out. */
+export async function deleteElement(briefId, elementId) {
+  if (store.mode === "shared" && navigator.onLine) {
+    const { fs, db, root } = store._fb;
+    try { await fs.deleteDoc(fs.doc(db, root, briefId, "elements", elementId)); } catch {}
+  }
+  const list = ((await idbGet("elements", briefId)) || []).filter((x) => x.id !== elementId);
+  await idbPut("elements", list, briefId);
+}
+
 /* Replace the whole override set — how a checkpoint restore works. The baseline
    pack is never touched, so "restore to original" is just clearing overrides. */
 export async function replaceElements(briefId, list) {
