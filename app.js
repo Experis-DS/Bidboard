@@ -569,6 +569,38 @@ async function applyEdit(change) {
   const { briefId } = BRIEF;
   const at = new Date().toISOString();
 
+  /* Renaming a section touches every question filed under it plus the declared
+     section list. That is N+1 overrides but exactly one thing happened, so it
+     writes one activity row — an audit trail that logs nine lines for one
+     rename is an audit trail nobody reads. */
+  if (change.kind === "rename-topic") {
+    const { from, to } = change;
+    const affected = (BRIEF.pack.questions || []).filter((q) => (q.topic || "General") === from);
+    for (const q of affected) {
+      await setElement(briefId, `questions-${q.id}.topic`, {
+        id: `questions-${q.id}.topic`, kind: "set",
+        path: `questions[id=${q.id}].topic`, value: to, editor: who, at,
+      });
+    }
+    const declared = BRIEF.pack.questionTopics || [];
+    if (declared.includes(from)) {
+      await setElement(briefId, "questionTopics", {
+        id: "questionTopics", kind: "set", path: "questionTopics",
+        value: declared.map((t) => (t === from ? to : t)), editor: who, at,
+      });
+    }
+    await appendActivity(briefId, {
+      kind: "human", editor: who, elementId: `question-${affected[0]?.id || ""}`,
+      section: "questions", field: "section name",
+      before: from, after: `${to} · ${affected.length} question${affected.length === 1 ? "" : "s"} moved`,
+    });
+    BRIEF.pack = await getPack(briefId);
+    BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    refreshActivityCount();
+    flashSaved();
+    return;
+  }
+
   let entry;
   if (change.kind === "add") {
     const value = (NEW_ITEM[change.coll] || (() => ({ id: "X-" + Date.now().toString(36) })))();

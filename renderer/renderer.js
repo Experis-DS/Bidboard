@@ -714,7 +714,10 @@ function secQuestions(p, d, ctx) {
     // heading with nothing under it.
     if (!n && !ctx.edit) return "";
     return `<div class="rb-group rb-qgroup"${ctx.edit ? ` data-topic="${esc(t)}"` : ""}>
-      <div class="rb-group-head"><span>${esc(t)}</span>
+      <div class="rb-group-head"><span${ctx.edit
+        ? ` contenteditable="plaintext-only" spellcheck="false" class="rb-topic-name"
+            data-topic-edit="${esc(t)}" role="textbox" aria-label="Section name"`
+        : ""}>${esc(t)}</span>
         <span class="rb-nav-count">${n}</span></div>
       ${n ? `<ul class="rb-rows">${rows(t)}</ul>`
           : `<p class="rb-empty rb-empty-topic">Empty — drag a question here, or add one.</p>`}
@@ -1124,6 +1127,30 @@ export function renderBrief(pack, mount, opts = {}) {
     mount.addEventListener("focusin", (e) => {
       const t = e.target.closest("[data-etext]");
       if (t) t.dataset.before = t.textContent;
+    });
+
+    /* Renaming a section is not a field edit — it rewrites the topic on every
+       question filed under it. It gets its own change kind so the activity log
+       records one "renamed" line rather than one line per question. */
+    mount.addEventListener("keydown", (e) => {
+      const t = e.target.closest("[data-topic-edit]");
+      if (!t) return;
+      if (e.key === "Escape") { t.textContent = t.dataset.topicEdit; t.blur(); }
+      if (e.key === "Enter") { e.preventDefault(); t.blur(); }
+    });
+    mount.addEventListener("focusout", (e) => {
+      const t = e.target.closest("[data-topic-edit]");
+      if (!t) return;
+      const from = t.dataset.topicEdit;
+      const to = t.textContent.trim();
+      if (!to) { t.textContent = from; return; }          // blank is a cancel
+      if (to === from) return;
+      // Claim the new name before emitting. The re-render tears this node out
+      // while it still has focus, which fires focusout a second time — and the
+      // second pass would log a rename of zero questions over the real one.
+      t.dataset.topicEdit = to;
+      o.onEdit({ kind: "rename-topic", from, to, rerender: true,
+                 label: `section “${from}” → “${to}”` });
     });
     mount.addEventListener("keydown", (e) => {
       const t = e.target.closest("[data-etext]");

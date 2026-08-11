@@ -638,6 +638,18 @@
 
 .rb-empty-topic{ padding:14px 8px; font-size:var(--rb-t-small); }
 
+/* An editable section name should read as a heading until you approach it —
+   an always-boxed input turns the page into a form. */
+.rb-topic-name{
+  border-radius:5px; padding:1px 6px; margin-left:-6px;
+  border:1px solid transparent; cursor:text;
+}
+.rb-topic-name:hover{ border-color:var(--rb-line, #E6E5F0); background:#fff; }
+.rb-topic-name:focus{
+  outline:none; border-color:var(--rb-accent, #5241B5); background:#fff;
+  box-shadow:0 0 0 3px var(--rb-accent-soft, #EEEBFA);
+}
+
 /* ---- export menu ---- */
 .rb-exp{ position:relative; flex:0 0 auto; }
 .rb-caret{
