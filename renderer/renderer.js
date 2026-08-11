@@ -646,6 +646,14 @@ function secTeam(p, d) {
        <div style="margin-top:12px">${heatmap(d.ownerLoad)}</div></div>` : "");
 }
 
+const toggleBtn = (mount) => mount.querySelector("[data-exp-toggle]");
+function flashBtn(btn, label) {
+  if (!btn) return;
+  const original = btn.innerHTML;
+  btn.textContent = label;
+  setTimeout(() => { btn.innerHTML = original; }, 1400);
+}
+
 /* ---------- 9. Questions ----------
    Topic is the organising idea here, and questions get re-filed constantly as
    the Q&A takes shape. In edit mode a row can be dragged between topics, and
@@ -653,8 +661,18 @@ function secTeam(p, d) {
    only path, because drag alone is unusable by keyboard. */
 function secQuestions(p, d, ctx) {
   const qs = arr(p.questions);
-  const exportBtn = qs.length
-    ? `<button class="rb-btn rb-export-q" data-export="questions">Export questions</button>` : "";
+  const exportBtn = qs.length ? `
+    <div class="rb-exp">
+      <button class="rb-btn rb-export-q" data-exp-toggle aria-haspopup="true" aria-expanded="false">
+        Export questions <span class="rb-caret" aria-hidden="true"></span>
+      </button>
+      <div class="rb-exp-pop" hidden>
+        <button data-export="clip">Copy to clipboard</button>
+        <button data-export="txt">Plain text · .txt</button>
+        <button data-export="docx">Word · .docx</button>
+        <button data-export="csv">Spreadsheet · .csv</button>
+      </div>
+    </div>` : "";
   const headBlock = `<div class="rb-sec-head">
       ${head("Questions for client", "Submission-ready wording. Copy straight into the Q&A response.")}
       ${exportBtn}
@@ -663,10 +681,13 @@ function secQuestions(p, d, ctx) {
   if (!qs.length) return headBlock + `<p class="rb-empty">No open questions.</p>`;
 
   const topicOf = (q) => q.topic || "General";
-  // Sorted, not first-seen. With first-seen order, moving one question out of a
-  // topic reorders every group on the page and the reader loses their place
-  // mid-edit. "General" sits last because it means "not filed yet".
-  const topics = [...new Set(qs.map(topicOf))].sort((a, b) =>
+  // Union of topics in use and sections someone created deliberately, so an
+  // empty section survives until it is filled rather than vanishing the moment
+  // it is made. Sorted, not first-seen: with first-seen order, moving one
+  // question out of a topic reorders every group on the page and the reader
+  // loses their place mid-edit. "General" sits last — it means "not filed yet".
+  const declared = arr(p.questionTopics).filter((t) => typeof t === "string" && t.trim());
+  const topics = [...new Set([...qs.map(topicOf), ...declared])].sort((a, b) =>
     a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b));
 
   const topicSelect = (q) => `
@@ -679,7 +700,6 @@ function secQuestions(p, d, ctx) {
   const rows = (t) => qs.filter((q) => topicOf(q) === t).map((q) => `
     <li data-el="question-${esc(q.id)}" data-qid="${esc(q.id)}"${ctx.edit ? ' draggable="true" class="rb-drag"' : ""}>
       <div class="rb-row" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "190px" : "70px"}">
-        ${ctx.edit ? '<span class="rb-grip" aria-hidden="true">⠿</span>' : ""}
         <span class="rb-id">${esc(q.id)}</span>
         <span${edIn(ctx, `questions[id=${q.id}].text`, "rb-row-text")}>${esc(q.text)}</span><span></span><span></span>
         <span class="rb-meta r">${ctx.edit
@@ -688,15 +708,24 @@ function secQuestions(p, d, ctx) {
             ? `<a href="#" data-goto="requirements" data-el="req-${esc(q.requirementId)}">${esc(q.requirementId)}</a>` : "")}</span>
       </div></li>`).join("");
 
-  return headBlock + topics.map((t) => `
-    <div class="rb-group rb-qgroup"${ctx.edit ? ` data-topic="${esc(t)}"` : ""}>
+  return headBlock + topics.map((t) => {
+    const n = qs.filter((q) => topicOf(q) === t).length;
+    // An empty section is only shown while editing — a reader has no use for a
+    // heading with nothing under it.
+    if (!n && !ctx.edit) return "";
+    return `<div class="rb-group rb-qgroup"${ctx.edit ? ` data-topic="${esc(t)}"` : ""}>
       <div class="rb-group-head"><span>${esc(t)}</span>
-        <span class="rb-nav-count">${qs.filter((q) => topicOf(q) === t).length}</span></div>
-      <ul class="rb-rows">${rows(t)}</ul>
-    </div>`).join("") +
+        <span class="rb-nav-count">${n}</span></div>
+      ${n ? `<ul class="rb-rows">${rows(t)}</ul>`
+          : `<p class="rb-empty rb-empty-topic">Empty — drag a question here, or add one.</p>`}
+    </div>`;
+  }).join("") +
     (ctx.edit ? `<div class="rb-group rb-qgroup rb-newtopic" data-topic="__new">
-      <div class="rb-group-head"><span>Drop here to start a new topic</span></div></div>` : "") +
-    addBtn(ctx, "questions", "Add a question");
+      <div class="rb-group-head"><span>Drop here to start a new section</span></div></div>` : "") +
+    (ctx.edit ? `<div class="rb-addrow">
+      <button class="rb-btn rb-add" data-add="questions">+ Add a question</button>
+      <button class="rb-btn rb-add" data-add-section="1">+ Add a section</button>
+    </div>` : "");
 }
 
 /* Plain text, because the destination is a portal form or an email, and every
@@ -724,6 +753,106 @@ function questionsToText(p) {
     L.push("");
   }
   return L.join("\n");
+}
+
+/* CSV, for the teams who track Q&A in a sheet. Quoting is not optional: these
+   are sentences, and they contain commas and quotes as a matter of course. */
+function questionsToCsv(p) {
+  const qs = arr(p.questions);
+  const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const lines = [["Topic", "ID", "Question", "Requirement"].map(cell).join(",")];
+  for (const q of qs) {
+    lines.push([q.topic || "General", q.id, q.text, q.requirementId || ""].map(cell).join(","));
+  }
+  // BOM so Excel opens UTF-8 correctly instead of mangling the first column.
+  return "﻿" + lines.join("\r\n");
+}
+
+/* ---------- a real .docx ----------
+   Not HTML with a .doc extension: modern Word warns that the format does not
+   match the extension, which is a poor thing to hand a colleague. A .docx is a
+   zip of three XML parts, and the entries are small enough to store without
+   compressing — which removes the only hard part. */
+const CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let c = i;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    t[i] = c >>> 0;
+  }
+  return (bytes) => {
+    let c = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) c = t[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  };
+})();
+
+function zipStore(files) {
+  const enc = new TextEncoder();
+  const parts = [], central = [];
+  let offset = 0;
+  const u16 = (n) => [n & 255, (n >>> 8) & 255];
+  const u32 = (n) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255];
+
+  for (const [name, text] of files) {
+    const nameB = enc.encode(name), data = enc.encode(text);
+    const crc = CRC(data);
+    const local = [...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0),
+      ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length),
+      ...u16(nameB.length), ...u16(0)];
+    parts.push(new Uint8Array(local), nameB, data);
+    // One pair per entry. Pushing head and nameB as two arguments appends two
+    // separate items, and the destructuring below then reads a number as the
+    // header — a zip whose central directory is garbage but whose EOCD is
+    // valid, so it opens as an archive containing nothing.
+    central.push([[...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0),
+      ...u16(0), ...u16(0x21), ...u32(crc), ...u32(data.length), ...u32(data.length),
+      ...u16(nameB.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0),
+      ...u32(offset)], nameB]);
+    offset += local.length + nameB.length + data.length;
+  }
+  const cd = [];
+  for (const [head, nameB] of central) { cd.push(new Uint8Array(head), nameB); }
+  const cdSize = cd.reduce((n, b) => n + b.length, 0);
+  const eocd = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0),
+    ...u16(files.length), ...u16(files.length), ...u32(cdSize), ...u32(offset), ...u16(0)]);
+  return new Blob([...parts, ...cd, eocd], {
+    type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  });
+}
+
+function questionsToDocx(p) {
+  const qs = arr(p.questions);
+  const x = (v) => String(v ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+  const para = (text, { size = 22, bold = false, before = 0, caps = false } = {}) =>
+    `<w:p><w:pPr><w:spacing w:before="${before}" w:after="80"/></w:pPr>` +
+    `<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="${size}"/>` +
+    `${bold ? "<w:b/>" : ""}${caps ? '<w:caps/>' : ""}</w:rPr>` +
+    `<w:t xml:space="preserve">${x(text)}</w:t></w:r></w:p>`;
+
+  const client = p.client || p.meta?.client || "";
+  const title = p.title || p.meta?.title || "";
+  const body = [para("Questions for client", { size: 32, bold: true })];
+  if (client) body.push(para(client + (title ? ` — ${title}` : ""), { size: 20 }));
+  body.push(para(`${qs.length} question${qs.length === 1 ? "" : "s"}`, { size: 18 }));
+
+  const topics = [...new Set(qs.map((q) => q.topic || "General"))];
+  for (const t of topics) {
+    body.push(para(t, { size: 24, bold: true, before: 320, caps: true }));
+    for (const q of qs.filter((v) => (v.topic || "General") === t)) {
+      body.push(para(`${q.id}   ${q.text}`, { size: 22 }));
+      if (q.requirementId) body.push(para(`ref: ${q.requirementId}`, { size: 18 }));
+    }
+  }
+
+  return zipStore([
+    ["[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`],
+    ["_rels/.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`],
+    ["word/document.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body.join("")}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`],
+  ]);
 }
 
 /* ---------- 10. Risks & Signals ---------- */
@@ -914,19 +1043,47 @@ export function renderBrief(pack, mount, opts = {}) {
   mount.addEventListener("click", (e) => {
     const nav = e.target.closest("[data-goto]");
     if (nav) { e.preventDefault(); show(nav.dataset.goto, nav.dataset.el); return; }
-    const exp = e.target.closest('[data-export="questions"]');
+    const toggle = e.target.closest("[data-exp-toggle]");
+    const pop = mount.querySelector(".rb-exp-pop");
+    if (pop) {
+      if (toggle) {
+        e.preventDefault();
+        const open = pop.hidden;
+        pop.hidden = !open;
+        toggle.setAttribute("aria-expanded", String(open));
+        return;
+      }
+      if (!e.target.closest(".rb-exp")) pop.hidden = true;
+    }
+
+    const exp = e.target.closest("[data-export]");
     if (exp) {
       e.preventDefault();
-      const text = questionsToText(current);
+      if (pop) pop.hidden = true;
+      const kind = exp.dataset.export;
       const slug = String(current.briefId || current.client || "pursuit")
         .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+      if (kind === "clip") {
+        // Clipboard is the most-used path — the destination is usually a
+        // portal textarea — so it gets a visible confirmation, not silence.
+        navigator.clipboard.writeText(questionsToText(current)).then(
+          () => flashBtn(toggleBtn(mount), "Copied"),
+          () => alert("The browser blocked clipboard access. Use Plain text instead."));
+        return;
+      }
+      const out = kind === "docx" ? { blob: questionsToDocx(current), ext: "docx" }
+        : kind === "csv" ? { blob: new Blob([questionsToCsv(current)], { type: "text/csv;charset=utf-8" }), ext: "csv" }
+        : { blob: new Blob([questionsToText(current)], { type: "text/plain;charset=utf-8" }), ext: "txt" };
+
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-      a.download = `${slug}-questions.txt`;
+      a.href = URL.createObjectURL(out.blob);
+      a.download = `${slug}-questions.${out.ext}`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
       return;
     }
+
     const meet = e.target.closest('[data-action="start-meeting"]');
     if (meet) {
       e.preventDefault();
@@ -1058,6 +1215,22 @@ export function renderBrief(pack, mount, opts = {}) {
         e.preventDefault();
         o.onEdit({ kind: "add", coll: add.dataset.add, rerender: true,
                    label: `added to ${add.dataset.add}` });
+        return;
+      }
+      /* A section is not a row, so it is not an "add" to a collection. It is a
+         name recorded on the pack, which is what lets an empty one survive. */
+      const sec = e.target.closest("[data-add-section]");
+      if (sec) {
+        e.preventDefault();
+        const name = (prompt("Name the new section:") || "").trim();
+        if (!name) return;
+        const existing = arr(current.questionTopics);
+        const inUse = new Set([...arr(current.questions).map((q) => q.topic || "General"), ...existing]);
+        if (inUse.has(name)) { alert(`"${name}" already exists.`); return; }
+        o.onEdit({
+          kind: "set", path: "questionTopics", value: [...existing, name],
+          elementId: "questionTopics", label: `added section ${name}`, rerender: true,
+        });
       }
     });
   }
