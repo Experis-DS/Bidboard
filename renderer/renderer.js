@@ -646,6 +646,18 @@ function secTeam(p, d) {
        <div style="margin-top:12px">${heatmap(d.ownerLoad)}</div></div>` : "");
 }
 
+/* Collapsed sections are a viewing preference, not content — they belong to the
+   person, not the pack. localStorage can throw in a sandboxed frame, so every
+   access is guarded rather than assumed. */
+const collapseKey = (briefId) => `rb.qcollapse.${briefId || "brief"}`;
+function readCollapsed(briefId) {
+  try { return new Set(JSON.parse(localStorage.getItem(collapseKey(briefId)) || "[]")); }
+  catch { return new Set(); }
+}
+function writeCollapsed(briefId, set) {
+  try { localStorage.setItem(collapseKey(briefId), JSON.stringify([...set])); } catch {}
+}
+
 const toggleBtn = (mount) => mount.querySelector("[data-exp-toggle]");
 function flashBtn(btn, label) {
   if (!btn) return;
@@ -686,9 +698,15 @@ function secQuestions(p, d, ctx) {
   // it is made. Sorted, not first-seen: with first-seen order, moving one
   // question out of a topic reorders every group on the page and the reader
   // loses their place mid-edit. "General" sits last — it means "not filed yet".
+  /* questionTopics is the running order of sections, and also what keeps an
+     empty section alive until it is filled. Anything in use but not listed yet
+     falls in after it, alphabetically, with "General" last — so a pack that has
+     never been reordered looks exactly as it did before. */
   const declared = arr(p.questionTopics).filter((t) => typeof t === "string" && t.trim());
-  const topics = [...new Set([...qs.map(topicOf), ...declared])].sort((a, b) =>
+  const inUse = [...new Set(qs.map(topicOf))];
+  const extras = inUse.filter((t) => !declared.includes(t)).sort((a, b) =>
     a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b));
+  const topics = [...new Set([...declared, ...extras])];
 
   const topicSelect = (q) => `
     <select class="rb-in rb-topic" data-edit="topic" data-coll="questions" data-id="${esc(q.id)}"
@@ -710,20 +728,25 @@ function secQuestions(p, d, ctx) {
             ? `<a href="#" data-goto="requirements" data-el="req-${esc(q.requirementId)}">${esc(q.requirementId)}</a>` : "")}</span>
       </div></li>`).join("");
 
+  const collapsed = readCollapsed(p.briefId);
   return headBlock + topics.map((t) => {
     const n = qs.filter((q) => topicOf(q) === t).length;
     // An empty section is only shown while editing — a reader has no use for a
     // heading with nothing under it.
     if (!n && !ctx.edit) return "";
-    return `<div class="rb-group rb-qgroup"${ctx.edit ? ` data-topic="${esc(t)}"` : ""}>
-      <div class="rb-group-head"><span${ctx.edit
+    return `<details class="rb-group rb-qgroup" data-topic="${esc(t)}"${collapsed.has(t) ? "" : " open"}>
+      <summary class="rb-group-head">
+        <span class="rb-chev" aria-hidden="true"></span>
+        ${ctx.edit ? `<span class="rb-sgrip" draggable="true" title="Drag to reorder this section"
+             aria-label="Reorder section ${esc(t)}">⠿</span>` : ""}
+        <span${ctx.edit
         ? ` contenteditable="plaintext-only" spellcheck="false" class="rb-topic-name"
             data-topic-edit="${esc(t)}" role="textbox" aria-label="Section name"`
         : ""}>${esc(t)}</span>
-        <span class="rb-nav-count">${n}</span></div>
+        <span class="rb-nav-count">${n}</span></summary>
       ${n ? `<ul class="rb-rows">${rows(t)}</ul>`
           : `<p class="rb-empty rb-empty-topic">Empty — drag a question here, or add one.</p>`}
-    </div>`;
+    </details>`;
   }).join("") +
     (ctx.edit ? `<div class="rb-group rb-qgroup rb-newtopic" data-topic="__new">
       <div class="rb-group-head"><span>Drop here to start a new section</span></div></div>` : "") +
@@ -987,7 +1010,10 @@ export function renderBrief(pack, mount, opts = {}) {
   mount.__rbAbort?.abort();
   const rbAC = new AbortController();
   mount.__rbAbort = rbAC;
-  const on = (type, fn) => mount.addEventListener(type, fn, { signal: rbAC.signal });
+  // `toggle` does not bubble, so some listeners need capture. Options merge in
+  // rather than replacing the abort signal, which every listener depends on.
+  const on = (type, fn, capture) =>
+    mount.addEventListener(type, fn, { signal: rbAC.signal, capture: !!capture });
 
   const d = derive(pack);
   o.onDerive({
@@ -1144,6 +1170,13 @@ export function renderBrief(pack, mount, opts = {}) {
     /* Renaming a section is not a field edit — it rewrites the topic on every
        question filed under it. It gets its own change kind so the activity log
        records one "renamed" line rather than one line per question. */
+    /* Inside a <summary>, a click toggles the section. The rename field and the
+       reorder grip both live there, so both have to opt out or you cannot type
+       a name without collapsing what you are naming. */
+    on("click", (e) => {
+      if (e.target.closest("[data-topic-edit], .rb-sgrip")) e.preventDefault();
+    });
+
     on("keydown", (e) => {
       const t = e.target.closest("[data-topic-edit]");
       if (!t) return;
@@ -1187,8 +1220,25 @@ export function renderBrief(pack, mount, opts = {}) {
     /* Drag a question into another topic. The drop target is the group, so the
        whole band is a target rather than a thin line between rows — ordering
        within a topic is not meaningful here, only which topic it belongs to. */
-    let dragId = null;
+    let dragId = null;        // a question being re-filed
+    let dragSection = null;   // a whole section being reordered
+
+    const sectionOrder = () =>
+      [...mount.querySelectorAll(".rb-qgroup[data-topic]")]
+        .map((el) => el.dataset.topic)
+        .filter((t) => t && t !== "__new");
+
+    const clearDropMarks = () => mount.querySelectorAll(".is-over,.is-before,.is-after")
+      .forEach((el) => el.classList.remove("is-over", "is-before", "is-after"));
+
     on("dragstart", (e) => {
+      const sgrip = e.target.closest(".rb-sgrip");
+      if (sgrip) {
+        dragSection = sgrip.closest(".rb-qgroup")?.dataset.topic || null;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", `section:${dragSection}`);
+        return;
+      }
       // Only the grip starts a move. The row cannot be draggable itself: its
       // text is contenteditable, so dragging anywhere on it starts a text drag
       // and the row never moves.
@@ -1200,35 +1250,80 @@ export function renderBrief(pack, mount, opts = {}) {
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", dragId);
     });
+
     on("dragend", () => {
-      dragId = null;
-      mount.querySelectorAll(".is-dragging,.is-over").forEach((el) =>
-        el.classList.remove("is-dragging", "is-over"));
+      dragId = null; dragSection = null;
+      mount.querySelectorAll(".is-dragging").forEach((el) => el.classList.remove("is-dragging"));
+      clearDropMarks();
     });
+
     on("dragover", (e) => {
       const g = e.target.closest(".rb-qgroup[data-topic]");
-      if (!g || !dragId) return;
+      if (!g) return;
+
+      if (dragSection) {
+        if (g.dataset.topic === dragSection || g.dataset.topic === "__new") return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        // Above or below the midpoint decides which side it lands on. Without
+        // that, dragging a section downward always inserts above the target and
+        // the row appears to move the wrong way.
+        const r = g.getBoundingClientRect();
+        const before = e.clientY < r.top + r.height / 2;
+        clearDropMarks();
+        g.classList.add(before ? "is-before" : "is-after");
+        return;
+      }
+
+      if (!dragId) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       if (!g.classList.contains("is-over")) {
-        mount.querySelectorAll(".is-over").forEach((el) => el.classList.remove("is-over"));
+        clearDropMarks();
         g.classList.add("is-over");
       }
+      // A collapsed section is still a valid destination — open it so the drop
+      // is visible rather than a guess.
+      if (g.tagName === "DETAILS" && !g.open) g.open = true;
     });
+
     on("dragleave", (e) => {
       const g = e.target.closest(".rb-qgroup[data-topic]");
-      if (g && !g.contains(e.relatedTarget)) g.classList.remove("is-over");
+      if (g && !g.contains(e.relatedTarget)) g.classList.remove("is-over", "is-before", "is-after");
     });
+
     on("drop", (e) => {
       const g = e.target.closest(".rb-qgroup[data-topic]");
-      const id = dragId || e.dataTransfer.getData("text/plain");
-      if (!g || !id) return;
+      if (!g) return;
       e.preventDefault();
-      g.classList.remove("is-over");
+
+      if (dragSection) {
+        const target = g.dataset.topic;
+        const r = g.getBoundingClientRect();
+        const before = e.clientY < r.top + r.height / 2;
+        clearDropMarks();
+        if (!target || target === dragSection || target === "__new") return;
+
+        const order = sectionOrder().filter((t) => t !== dragSection);
+        const at = order.indexOf(target) + (before ? 0 : 1);
+        order.splice(at, 0, dragSection);
+
+        o.onEdit({
+          kind: "set", path: "questionTopics", value: order,
+          elementId: "questionTopics", label: `moved section “${dragSection}”`,
+          rerender: true,
+        });
+        dragSection = null;
+        return;
+      }
+
+      const id = dragId || e.dataTransfer.getData("text/plain");
+      if (!id || id.startsWith("section:")) return;
+      clearDropMarks();
 
       let topic = g.dataset.topic;
       if (topic === "__new") {
-        topic = (prompt("Name the new topic:") || "").trim();
+        topic = (prompt("Name the new section:") || "").trim();
         if (!topic) return;
       }
       const from = mount.querySelector(`li[data-qid="${CSS.escape(id)}"]`)
@@ -1277,6 +1372,15 @@ export function renderBrief(pack, mount, opts = {}) {
       }
     });
   }
+
+  /* Remember which sections are collapsed, per person, per brief. */
+  on("toggle", (e) => {
+    const g = e.target.closest?.(".rb-qgroup[data-topic]");
+    if (!g || g.dataset.topic === "__new") return;
+    const set = readCollapsed(current.briefId);
+    if (g.open) set.delete(g.dataset.topic); else set.add(g.dataset.topic);
+    writeCollapsed(current.briefId, set);
+  }, true);
 
   attachPopovers(mount, docsByName, ctx, rbAC.signal);
   show(o.section);
