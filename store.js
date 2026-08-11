@@ -75,8 +75,18 @@ async function kv(storeName, mode, fn, memFn) {
 }
 const idbAll = (s) => kv(s, "readonly", (os) => os.getAll(), (m) => [...m.values()]);
 const idbGet = (s, k) => kv(s, "readonly", (os) => os.get(k), (m) => m.get(k));
+/* The memory fallback has to mirror each object store's key strategy, not guess
+   one. "activity" is autoIncrement in IndexedDB; keying it by briefId here made
+   every row for a pursuit overwrite the previous one, so the log showed exactly
+   one entry per brief and looked like edits were not being recorded. */
+let autoKey = 0;
+const AUTO_STORES = new Set(["activity"]);
 const idbPut = (s, v, k) => kv(s, "readwrite", (os) => os.put(v, k),
-  (m) => m.set(k !== undefined ? k : (v && v.briefId) ?? m.size + 1, v));
+  (m) => m.set(
+    k !== undefined ? k
+      : AUTO_STORES.has(s) ? `auto-${++autoKey}`
+      : (v && v.briefId) ?? `auto-${++autoKey}`,
+    v));
 const idbDel = (s, k) => kv(s, "readwrite", (os) => os.delete(k), (m) => m.delete(k));
 
 /* ---------------- init ---------------- */

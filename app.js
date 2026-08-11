@@ -558,6 +558,12 @@ const NEW_ITEM = {
 };
 
 async function applyEdit(change) {
+  // A cancelled "New topic…" prompt: nothing to record, but the select is
+  // showing __new and has to be put back.
+  if (change.kind === "noop") {
+    if (change.rerender !== false && BRIEF) BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    return;
+  }
   const who = editorName();
   if (!who) return;
   const { briefId } = BRIEF;

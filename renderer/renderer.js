@@ -646,21 +646,84 @@ function secTeam(p, d) {
        <div style="margin-top:12px">${heatmap(d.ownerLoad)}</div></div>` : "");
 }
 
-/* ---------- 9. Questions ---------- */
+/* ---------- 9. Questions ----------
+   Topic is the organising idea here, and questions get re-filed constantly as
+   the Q&A takes shape. In edit mode a row can be dragged between topics, and
+   the same move is available from a select — drag is the fast path, not the
+   only path, because drag alone is unusable by keyboard. */
 function secQuestions(p, d, ctx) {
   const qs = arr(p.questions);
-  if (!qs.length) return head("Questions for client") + `<p class="rb-empty">No open questions.</p>`;
-  const topics = [...new Set(qs.map((q) => q.topic || "General"))];
-  return head("Questions for client", "Submission-ready wording. Copy straight into the Q&A response.") +
-    topics.map((t) => `<div class="rb-group">
-      <div class="rb-group-head"><span>${esc(t)}</span><span class="rb-nav-count">${qs.filter((q) => (q.topic || "General") === t).length}</span></div>
-      <ul class="rb-rows">${qs.filter((q) => (q.topic || "General") === t).map((q) => `
-        <li data-el="question-${esc(q.id)}"><div class="rb-row" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:70px">
-          <span class="rb-id">${esc(q.id)}</span>
-          <span${edIn(ctx, `questions[id=${q.id}].text`, "rb-row-text")}>${esc(q.text)}</span><span></span><span></span>
-          <span class="rb-meta r">${ctx.edit ? delBtn(ctx, "questions", q.id) : (q.requirementId
+  const exportBtn = qs.length
+    ? `<button class="rb-btn rb-export-q" data-export="questions">Export questions</button>` : "";
+  const headBlock = `<div class="rb-sec-head">
+      ${head("Questions for client", "Submission-ready wording. Copy straight into the Q&A response.")}
+      ${exportBtn}
+    </div>`;
+
+  if (!qs.length) return headBlock + `<p class="rb-empty">No open questions.</p>`;
+
+  const topicOf = (q) => q.topic || "General";
+  // Sorted, not first-seen. With first-seen order, moving one question out of a
+  // topic reorders every group on the page and the reader loses their place
+  // mid-edit. "General" sits last because it means "not filed yet".
+  const topics = [...new Set(qs.map(topicOf))].sort((a, b) =>
+    a === "General" ? 1 : b === "General" ? -1 : a.localeCompare(b));
+
+  const topicSelect = (q) => `
+    <select class="rb-in rb-topic" data-edit="topic" data-coll="questions" data-id="${esc(q.id)}"
+            aria-label="Topic for ${esc(q.id)}">
+      ${topics.map((t) => `<option${t === topicOf(q) ? " selected" : ""}>${esc(t)}</option>`).join("")}
+      <option value="__new">New topic…</option>
+    </select>`;
+
+  const rows = (t) => qs.filter((q) => topicOf(q) === t).map((q) => `
+    <li data-el="question-${esc(q.id)}" data-qid="${esc(q.id)}"${ctx.edit ? ' draggable="true" class="rb-drag"' : ""}>
+      <div class="rb-row" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "190px" : "70px"}">
+        ${ctx.edit ? '<span class="rb-grip" aria-hidden="true">⠿</span>' : ""}
+        <span class="rb-id">${esc(q.id)}</span>
+        <span${edIn(ctx, `questions[id=${q.id}].text`, "rb-row-text")}>${esc(q.text)}</span><span></span><span></span>
+        <span class="rb-meta r">${ctx.edit
+          ? topicSelect(q) + delBtn(ctx, "questions", q.id)
+          : (q.requirementId
             ? `<a href="#" data-goto="requirements" data-el="req-${esc(q.requirementId)}">${esc(q.requirementId)}</a>` : "")}</span>
-        </div></li>`).join("")}</ul></div>`).join("") + addBtn(ctx, "questions", "Add a question");
+      </div></li>`).join("");
+
+  return headBlock + topics.map((t) => `
+    <div class="rb-group rb-qgroup"${ctx.edit ? ` data-topic="${esc(t)}"` : ""}>
+      <div class="rb-group-head"><span>${esc(t)}</span>
+        <span class="rb-nav-count">${qs.filter((q) => topicOf(q) === t).length}</span></div>
+      <ul class="rb-rows">${rows(t)}</ul>
+    </div>`).join("") +
+    (ctx.edit ? `<div class="rb-group rb-qgroup rb-newtopic" data-topic="__new">
+      <div class="rb-group-head"><span>Drop here to start a new topic</span></div></div>` : "") +
+    addBtn(ctx, "questions", "Add a question");
+}
+
+/* Plain text, because the destination is a portal form or an email, and every
+   richer format arrives there as a formatting problem. */
+function questionsToText(p) {
+  const qs = arr(p.questions);
+  const client = p.client || p.meta?.client || "";
+  const title = p.title || p.meta?.title || "";
+  const L = [];
+  L.push("QUESTIONS FOR CLIENT");
+  if (client) L.push(client + (title ? ` — ${title}` : ""));
+  const due = p.dates?.qaDeadline || p.qaDeadline;
+  if (due) L.push(`Q&A deadline: ${due}`);
+  L.push(`${qs.length} question${qs.length === 1 ? "" : "s"}`);
+  L.push("");
+  const topics = [...new Set(qs.map((q) => q.topic || "General"))];
+  for (const t of topics) {
+    const inTopic = qs.filter((q) => (q.topic || "General") === t);
+    L.push(t.toUpperCase());
+    L.push("-".repeat(t.length));
+    for (const q of inTopic) {
+      L.push(`${q.id}  ${q.text}`);
+      if (q.requirementId) L.push(`      ref: ${q.requirementId}`);
+    }
+    L.push("");
+  }
+  return L.join("\n");
 }
 
 /* ---------- 10. Risks & Signals ---------- */
@@ -851,6 +914,19 @@ export function renderBrief(pack, mount, opts = {}) {
   mount.addEventListener("click", (e) => {
     const nav = e.target.closest("[data-goto]");
     if (nav) { e.preventDefault(); show(nav.dataset.goto, nav.dataset.el); return; }
+    const exp = e.target.closest('[data-export="questions"]');
+    if (exp) {
+      e.preventDefault();
+      const text = questionsToText(current);
+      const slug = String(current.briefId || current.client || "pursuit")
+        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+      a.download = `${slug}-questions.txt`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      return;
+    }
     const meet = e.target.closest('[data-action="start-meeting"]');
     if (meet) {
       e.preventDefault();
@@ -869,13 +945,21 @@ export function renderBrief(pack, mount, opts = {}) {
       const f = e.target.closest("[data-edit]");
       if (!f) return;
       const field = f.dataset.edit;
-      const value = f.type === "checkbox" ? f.checked : f.value;
+      let value = f.type === "checkbox" ? f.checked : f.value;
+
+      // "New topic…" is a command, not a value. Cancelling must not leave the
+      // select showing a topic the question is not actually in.
+      if (field === "topic" && value === "__new") {
+        const name = (prompt("Name the new topic:") || "").trim();
+        if (!name) { o.onEdit({ kind: "noop", rerender: true }); return; }
+        value = name;
+      }
       o.onEdit({
         kind: "set", coll: f.dataset.coll, itemId: f.dataset.id, field,
         path: `${f.dataset.coll}[id=${f.dataset.id}].${field}`,
         value: field === "owner" && value === "" ? null : value,
         elementId: `${f.dataset.coll}-${f.dataset.id}.${field}`,
-        label: `${f.dataset.id} · ${field}`,
+        label: field === "topic" ? `${f.dataset.id} · moved to ${value}` : `${f.dataset.id} · ${field}`,
         rerender: field !== "task",
       });
     });
@@ -902,6 +986,62 @@ export function renderBrief(pack, mount, opts = {}) {
         before, rerender: false,
       });
       t.dataset.before = after;
+    });
+
+    /* Drag a question into another topic. The drop target is the group, so the
+       whole band is a target rather than a thin line between rows — ordering
+       within a topic is not meaningful here, only which topic it belongs to. */
+    let dragId = null;
+    mount.addEventListener("dragstart", (e) => {
+      const li = e.target.closest("li[data-qid]");
+      if (!li) return;
+      dragId = li.dataset.qid;
+      li.classList.add("is-dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", dragId);
+    });
+    mount.addEventListener("dragend", () => {
+      dragId = null;
+      mount.querySelectorAll(".is-dragging,.is-over").forEach((el) =>
+        el.classList.remove("is-dragging", "is-over"));
+    });
+    mount.addEventListener("dragover", (e) => {
+      const g = e.target.closest(".rb-qgroup[data-topic]");
+      if (!g || !dragId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      if (!g.classList.contains("is-over")) {
+        mount.querySelectorAll(".is-over").forEach((el) => el.classList.remove("is-over"));
+        g.classList.add("is-over");
+      }
+    });
+    mount.addEventListener("dragleave", (e) => {
+      const g = e.target.closest(".rb-qgroup[data-topic]");
+      if (g && !g.contains(e.relatedTarget)) g.classList.remove("is-over");
+    });
+    mount.addEventListener("drop", (e) => {
+      const g = e.target.closest(".rb-qgroup[data-topic]");
+      const id = dragId || e.dataTransfer.getData("text/plain");
+      if (!g || !id) return;
+      e.preventDefault();
+      g.classList.remove("is-over");
+
+      let topic = g.dataset.topic;
+      if (topic === "__new") {
+        topic = (prompt("Name the new topic:") || "").trim();
+        if (!topic) return;
+      }
+      const from = mount.querySelector(`li[data-qid="${CSS.escape(id)}"]`)
+        ?.closest(".rb-qgroup")?.dataset.topic;
+      if (from === topic) return;   // dropped where it already was
+
+      o.onEdit({
+        kind: "set", coll: "questions", itemId: id, field: "topic",
+        path: `questions[id=${id}].topic`, value: topic,
+        elementId: `questions-${id}.topic`,
+        label: `${id} · moved to ${topic}`,
+        before: from, rerender: true,
+      });
     });
 
     mount.addEventListener("click", (e) => {
