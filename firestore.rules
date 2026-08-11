@@ -88,6 +88,16 @@ service cloud.firestore {
         allow delete: if open();   // only reached by the cascade in deletePursuit()
       }
 
+      // Review threads. Same posture as everything else here: open, because
+      // there is no identity to check. Append-only is deliberately NOT applied
+      // — a thread is edited every time somebody replies or resolves it.
+      match /threads/{threadId} {
+        allow read: if open();
+        allow create, update: if open()
+          && request.resource.size() < 200 * 1024;
+        allow delete: if open();
+      }
+
       // A checkpoint snapshots the override set, so it can be large-ish.
       match /checkpoints/{cpId} {
         allow read: if open();

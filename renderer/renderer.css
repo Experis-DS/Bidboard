@@ -763,3 +763,39 @@ details.rb-qgroup > summary .rb-nav-count{ margin-left:auto; }
   background:var(--rb-fill, #F8F8FB); border:1px solid var(--rb-line, #E6E5F0);
   font-size:var(--rb-t-small); color:var(--rb-gray, #5F6169); line-height:1.55;
 }
+
+/* ============================================================
+   COMMENT LAYER — pins, hover target, flash
+   The panel and button are hub chrome and live in app.css; these are the
+   marks that sit inside the brief itself.
+   ============================================================ */
+.rb .cm-hover{
+  outline:2px solid var(--rb-accent, #5241B5); outline-offset:2px;
+  border-radius:5px; background:var(--rb-accent-soft, #EEEBFA);
+}
+body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
+
+[data-el]{ position:relative; }
+.cm-pin{
+  position:absolute; top:2px; right:-8px; z-index:5;
+  min-width:19px; height:19px; padding:0 5px; border-radius:999px;
+  border:1.5px solid #fff; background:var(--rb-accent, #5241B5); color:#fff;
+  font:650 11px/1 ui-sans-serif, system-ui, sans-serif;
+  display:inline-flex; align-items:center; justify-content:center; cursor:pointer;
+  box-shadow:0 1px 4px rgba(34,36,43,.22);
+}
+.cm-pin:hover{ background:var(--rb-accent-2, #7466D6); }
+
+.cm-flash{ animation: cmflash 1.4s ease-out; border-radius:5px; }
+@keyframes cmflash{
+  0%,30%{ background:var(--rb-accent-soft, #EEEBFA); }
+  100%{ background:transparent; }
+}
+
+.cm-navbadge{
+  margin-left:6px; min-width:17px; height:17px; padding:0 5px; border-radius:999px;
+  background:var(--rb-accent, #5241B5); color:#fff;
+  font:650 10.5px/17px ui-sans-serif, system-ui, sans-serif; text-align:center;
+}
+
+@media (prefers-reduced-motion: reduce){ .cm-flash{ animation:none; } }

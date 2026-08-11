@@ -394,7 +394,7 @@ export async function deletePursuit(briefId) {
     // deleted one — the new pursuit arrives pre-edited by someone else. "pack"
     // is in this list too: leftover chunks make the count check fail on the
     // next import, which reads as a corrupt pack rather than a stale delete.
-    for (const sub of ["pack", "elements", "activity", "checkpoints"]) {
+    for (const sub of ["pack", "elements", "activity", "checkpoints", "threads"]) {
       try {
         const snap = await fs.getDocs(fs.collection(db, root, briefId, sub));
         await Promise.all(snap.docs.map((d) => fs.deleteDoc(d.ref)));

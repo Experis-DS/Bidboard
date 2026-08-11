@@ -8,6 +8,7 @@ import { initStore, store, listPursuits, getPack, getPursuit, putPursuit, update
 import { validate, askLine, CURRENT_SCHEMA, MIN_SCHEMA } from "./schema.js";
 import { unzip, asJson } from "./unzip.js";
 import { renderBrief, derive, RENDERER_VERSION } from "./renderer/renderer.js";
+import { mountComments, unmountComments, refreshComments } from "./comments.js";
 
 const $ = (s, r = document) => r.querySelector(s);
 const screen = $("#screen");
@@ -130,6 +131,10 @@ function route() {
   // inside the help-page embed, drop the hub chrome so the frame reads as the brief
   const embedded = window.top !== window.self;
   if (embedded) document.body.dataset.embed = "1";
+
+  // Leaving a brief takes the review layer with it — the button and panel are
+  // body-level chrome and would otherwise follow you to the Library.
+  if (!inBrief) { unmountComments(); BRIEF = null; }
 
   $("#hubHead").hidden = inBrief || embedded;
   $("#briefBar").hidden = !inBrief || embedded;
@@ -528,6 +533,15 @@ async function screenBrief(briefId, section) {
 
   bindBriefBar(briefId, idx, pack, BRIEF.api);
   refreshActivityCount();
+
+  /* The review layer. Independent of edit mode on purpose — commenting is what
+     people who are not editing do, and making it a mode would hide it from
+     exactly those people. */
+  await mountComments({
+    briefId,
+    mount: $("#brief"),
+    gotoSection: (id) => BRIEF.api?.goto?.(id),
+  });
 }
 
 /* ============================================================
@@ -666,6 +680,7 @@ async function applyEdit(change) {
   BRIEF.pack = await getPack(briefId);
   if (change.rerender !== false) {
     BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    refreshComments();
   }
   refreshActivityCount();
   flashSaved();
