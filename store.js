@@ -146,17 +146,26 @@ export async function getPursuit(briefId) {
 }
 
 export async function getPack(briefId) {
+  const base = await getPackBase(briefId);
+  return base ? applyOverrides(base, await getElements(briefId)) : null;
+}
+
+/* The imported baseline, WITHOUT overrides applied.
+   Live sync needs this: when a remote edit arrives we have to re-merge, and the
+   merged pack we already hold can't be un-merged. Holding the baseline means a
+   remote edit costs one structuredClone rather than re-reading every pack chunk
+   over the network. */
+export async function getPackBase(briefId) {
   const idx = await getPursuit(briefId);
   if (!idx) return null;
   if (store.mode === "shared" && navigator.onLine && idx.packChunks) {
     try {
       const pack = await readChunkedPack(briefId, idx.packChunks);
       await idbPut("packs", pack, briefId);
-      return applyOverrides(pack, await getElements(briefId));
+      return pack;
     } catch (e) { console.warn("Pack fetch failed — using cache.", e); }
   }
-  const cached = await idbGet("packs", briefId);
-  return cached ? applyOverrides(cached, await getElements(briefId)) : null;
+  return (await idbGet("packs", briefId)) || null;
 }
 
 export async function getElements(briefId) {
@@ -343,6 +352,97 @@ export async function listActivity(briefId) {
   }
   const all = (await idbAll("activity")) || [];
   return all.filter((a) => a.briefId === briefId).sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+/* ---------------- live subscriptions ----------------
+   Every read above is one-shot. That was the whole defect behind "my colleague
+   edited it, I can see it in the activity log, and my document never changed":
+   the write landed in Firestore, the reader had already finished reading, and
+   nothing told it to look again. Edits were only ever live on reload.
+
+   Two rules make these safe to wire into a rendering app:
+
+   1. IGNORE OUR OWN ECHO. Firestore fires a local snapshot the instant you
+      write, before the server confirms. Re-rendering on that would tear down
+      the contenteditable element the person is currently typing into. So any
+      snapshot carrying pending local writes is skipped — the local state is
+      already correct by definition.
+   2. NEVER THROW. A listener that fails must degrade to the cached view, the
+      same way the one-shot reads do. A rejected listener is a silent
+      permission or index problem, and taking the page down with it turns a
+      stale brief into a blank one.
+
+   Both return an unsubscribe function. Local mode returns a no-op, so callers
+   never branch on store.mode. */
+
+function noop() {}
+
+export function subscribePursuits(onRows) {
+  if (store.mode !== "shared") return noop;
+  const { fs, db, root } = store._fb;
+  try {
+    return fs.onSnapshot(fs.collection(db, root), (snap) => {
+      if (snap.metadata.hasPendingWrites) return;
+      const rows = snap.docs.map((d) => d.data());
+      Promise.all(rows.map((r) => idbPut("pursuits", r))).catch(() => {});
+      store.online = true;
+      onRows(rows);
+    }, (err) => {
+      console.warn("Library sync unavailable — showing the cached library.", err);
+      store.online = false;
+    });
+  } catch (e) {
+    console.warn("Library sync could not start.", e);
+    return noop;
+  }
+}
+
+/* One call, three collections, one unsubscribe. Callers get whichever handlers
+   they pass and nothing fires for the ones they don't. */
+export function subscribeBrief(briefId, { onElements, onActivity, onIndex } = {}) {
+  if (store.mode !== "shared") return noop;
+  const { fs, db, root } = store._fb;
+  const subs = [];
+
+  const watch = (ref, label, handle) => {
+    try {
+      subs.push(fs.onSnapshot(ref, (snap) => {
+        if (snap.metadata.hasPendingWrites) return;
+        store.online = true;
+        try { handle(snap); } catch (e) { console.warn(`${label} handler failed.`, e); }
+      }, (err) => {
+        console.warn(`${label} sync unavailable — showing what's cached.`, err);
+        store.online = false;
+      }));
+    } catch (e) {
+      console.warn(`${label} sync could not start.`, e);
+    }
+  };
+
+  if (onElements) {
+    watch(fs.collection(db, root, briefId, "elements"), "Edit", (snap) => {
+      const list = snap.docs.map((d) => d.data());
+      idbPut("elements", list, briefId).catch(() => {});
+      onElements(list);
+    });
+  }
+  if (onActivity) {
+    watch(fs.collection(db, root, briefId, "activity"), "Activity", (snap) => {
+      const rows = snap.docs.map((d) => d.data())
+        .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+      onActivity(rows);
+    });
+  }
+  if (onIndex) {
+    watch(fs.doc(db, root, briefId), "Pursuit", (snap) => {
+      if (!snap.exists()) return;
+      const row = snap.data();
+      idbPut("pursuits", row).catch(() => {});
+      onIndex(row);
+    });
+  }
+
+  return () => { for (const u of subs) { try { u(); } catch {} } };
 }
 
 /* A checkpoint snapshots the OVERRIDES, not the merged pack — the baseline

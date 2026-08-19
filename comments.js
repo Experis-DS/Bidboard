@@ -478,16 +478,33 @@ export async function mountComments({ briefId, mount, gotoSection }) {
     const { fs, db, root } = store._fb;
     const col = fs.collection(db, root, briefId, "threads");
     S.fb = { fs, col };
-    S.unsub = fs.onSnapshot(col, (snap) => {
-      S.threads = snap.docs.map((d) => d.data());
-      render();
-    }, (err) => {
-      console.warn("comment sync unavailable", err);
-      toast("Live comment sync unavailable — showing what's cached");
-      S.fb = null;
-      S.threads = readLocal(briefId);
-      render();
-    });
+
+    /* onSnapshot does NOT retry: the error callback means the listener is dead.
+       The previous version treated one transient failure as permanent — it
+       nulled S.fb, so commenting silently degraded to this-browser-only for the
+       rest of the session, and the toast made a blip look like a broken feature.
+       Reconnect a few times with backoff, and only tell the user once we have
+       actually given up. */
+    let tries = 0;
+    const attach = () => {
+      S.unsub = fs.onSnapshot(col, (snap) => {
+        tries = 0;
+        S.threads = snap.docs.map((d) => d.data());
+        render();
+      }, (err) => {
+        console.warn(`comment sync dropped (attempt ${tries + 1})`, err);
+        try { S.unsub?.(); } catch {}
+        if (++tries <= 3 && navigator.onLine) {
+          setTimeout(() => { if (S && S.briefId === briefId) attach(); }, 1000 * tries);
+          return;
+        }
+        toast("Comments are offline — you'll see what's cached until this page is reloaded");
+        S.fb = null;
+        S.threads = readLocal(briefId);
+        render();
+      });
+    };
+    attach();
   }
   return S;
 }

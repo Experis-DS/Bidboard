@@ -1,6 +1,6 @@
 {
-  "rendererVersion": "1.1.0",
-  "schemaSupport": { "min": 1, "max": 3 },
+  "rendererVersion": "1.2.0",
+  "schemaSupport": { "min": 1, "max": 4 },
   "entry": "renderer.js",
   "styles": "renderer.css",
   "exports": ["renderBrief", "derive", "RENDERER_VERSION", "SCHEMA_SUPPORT"],
@@ -9,13 +9,15 @@
                  "requirements", "team", "questions", "risks", "decisions", "documents"],
     "components": ["readiness", "criticalPath", "ownerLoad", "coverage"],
     "docPreviews": true,
-    "editMode": false,
+    "editMode": true,
+    "liveSync": true,
     "meetingMode": false,
     "aiAssist": false
   },
   "changelog": [
+    "1.2.0 — live edit sync: elements, activity and the pursuit index now stream over onSnapshot instead of being read once at load, so another person's edit reaches the open brief without a reload. Remote changes park while a field is focused and land on blur, so a re-render can never eat what someone is typing. Comment listener reconnects with backoff instead of degrading permanently on one blip. schemaSupport raised to 4. editMode declared honestly — it shipped in 1.1.x but the manifest still said false.",
     "1.1.0 — visual craft pass: one type scale, one row grid, one chip system, controlled measure, masthead + countdown pill, inline source disclosure, AA-safe greys.",
     "1.0.0 — first release: 12 sections read mode, four derived components, document previews."
   ],
-  "notes": "Fetch renderer.js + renderer.css from this directory and inline both to build a standalone brief. Do not fork — improvements here re-render every hosted pursuit on redeploy."
+  "notes": "Fetch renderer.js + renderer.css from this directory and inline both to build a standalone brief. Do not fork — improvements here re-render every hosted pursuit on redeploy. The eight-section IA (Scope / Plan / Compliance / Scorecard / Team & Burden / Questions / Risks & Signals / Record + a Documents header menu) is the next change and will land as 2.0.0; `sections` above still lists the twelve this version renders."
 }

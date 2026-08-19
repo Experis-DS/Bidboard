@@ -4,7 +4,7 @@
    The shell finds a pursuit. The renderer draws it. No overlap.
    ============================================================ */
 
-import { initStore, store, listPursuits, getPack, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement } from "./store.js";
+import { initStore, store, listPursuits, getPack, getPackBase, applyOverrides, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement, subscribeBrief, subscribePursuits } from "./store.js";
 import { validate, askLine, CURRENT_SCHEMA, MIN_SCHEMA } from "./schema.js";
 import { unzip, asJson } from "./unzip.js";
 import { renderBrief, derive, RENDERER_VERSION } from "./renderer/renderer.js";
@@ -16,6 +16,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 let CONFIG = { hubName: "Bid Board", baseUrl: "", hubVersion: "1.1.0" };
 let LIBRARY = [];
+let LIB_UNSUB = null;
 const view = { filter: "all", sort: "deadline", q: "" };
 
 const DAY = 864e5;
@@ -134,7 +135,10 @@ function route() {
 
   // Leaving a brief takes the review layer with it — the button and panel are
   // body-level chrome and would otherwise follow you to the Library.
-  if (!inBrief) { unmountComments(); BRIEF = null; }
+  // Leaving a view takes its live listeners with it. An orphaned onSnapshot keeps
+  // firing against a BRIEF that no longer exists, which reads as a ghost re-render.
+  if (!inBrief) { unmountComments(); BRIEF?.unsub?.(); BRIEF = null; }
+  if (head !== "" && head !== undefined) { LIB_UNSUB?.(); LIB_UNSUB = null; }
 
   $("#hubHead").hidden = inBrief || embedded;
   $("#briefBar").hidden = !inBrief || embedded;
@@ -165,8 +169,18 @@ async function screenLibrary() {
     <div class="cards">${'<div class="skel"></div>'.repeat(3)}</div>`);
 
   LIBRARY = await listPursuits();
-  if (!LIBRARY.length) return paintEmpty();
-  paintLibrary();
+  if (!LIBRARY.length) paintEmpty(); else paintLibrary();
+
+  /* The Library is shared state — somebody else importing a pursuit should make
+     it appear here without a refresh. Repaint only when the set actually differs,
+     so a readiness recalculation elsewhere doesn't flicker the whole grid. */
+  LIB_UNSUB?.();
+  LIB_UNSUB = subscribePursuits((rows) => {
+    if (location.hash.replace(/^#\/?/, "").split("/")[0] !== "") return;
+    if (JSON.stringify(rows) === JSON.stringify(LIBRARY)) return;
+    LIBRARY = rows;
+    if (!LIBRARY.length) paintEmpty(); else paintLibrary();
+  });
 }
 
 function paintEmpty() {
@@ -508,7 +522,7 @@ async function screenBrief(briefId, section) {
   const urls = await resolveAssetUrls(idx, pack);
 
   screen.innerHTML = `<div id="brief"></div>`;
-  BRIEF = { briefId, idx, pack, api: null, editing: false };
+  BRIEF = { briefId, idx, pack, base: await getPackBase(briefId), api: null, editing: false, unsub: null, pendingRemote: null };
 
   const opts = {
     section: section || "snapshot",
@@ -533,6 +547,17 @@ async function screenBrief(briefId, section) {
 
   bindBriefBar(briefId, idx, pack, BRIEF.api);
   refreshActivityCount();
+
+  /* LIVE SYNC. Until this existed, another person's edit reached Firestore and
+     sat there: this page had already finished reading, so the brief only caught
+     up on reload. The activity feed looked live purely because opening the panel
+     re-fetched it. */
+  BRIEF.unsub?.();
+  BRIEF.unsub = subscribeBrief(briefId, {
+    onElements: (list) => applyRemoteElements(briefId, list),
+    onActivity: () => refreshActivityCount(),
+    onIndex: (row) => { if (BRIEF && BRIEF.briefId === briefId) BRIEF.idx = row; },
+  });
 
   /* The review layer. Independent of edit mode on purpose — commenting is what
      people who are not editing do, and making it a mode would hide it from
@@ -701,6 +726,47 @@ function flashSaved() {
    lives in localStorage rather than being written back to the shared log. */
 const seenKey = (briefId) => `hub.actSeen.${briefId}`;
 const lastSeen = (briefId) => localStorage.getItem(seenKey(briefId)) || "";
+
+/* ---------------- remote edits ----------------
+   A remote change re-merges the overrides onto the baseline and re-renders.
+
+   The guard is the whole difficulty. A re-render replaces DOM, and if the person
+   is mid-sentence in a contenteditable field their caret, selection and unsaved
+   keystrokes go with it — a sync feature that eats your typing is worse than no
+   sync at all. So while focus is inside an editable element the incoming state
+   is parked, and applied on the next focusout. Last write still wins; it just
+   waits for a safe moment to land. */
+function isEditingNow() {
+  const a = document.activeElement;
+  const host = $("#brief");
+  if (!a || !host || !host.contains(a)) return false;
+  return a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+}
+
+function applyRemoteElements(briefId, list) {
+  if (!BRIEF || BRIEF.briefId !== briefId || !BRIEF.base) return;
+
+  if (isEditingNow()) {
+    BRIEF.pendingRemote = list;
+    if (!BRIEF.flushBound) {
+      BRIEF.flushBound = true;
+      // capture phase: focusout does not bubble reliably from removed nodes
+      document.addEventListener("focusout", () => {
+        if (!BRIEF || !BRIEF.pendingRemote) return;
+        const next = BRIEF.pendingRemote;
+        BRIEF.pendingRemote = null;
+        // one tick, so focus has actually settled before we replace DOM
+        setTimeout(() => applyRemoteElements(BRIEF?.briefId, next), 0);
+      }, true);
+    }
+    return;
+  }
+
+  const merged = applyOverrides(BRIEF.base, list);
+  if (JSON.stringify(merged) === JSON.stringify(BRIEF.pack)) return;   // nothing user-visible changed
+  BRIEF.pack = merged;
+  BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
+}
 
 async function refreshActivityCount() {
   const el = $("#actCount");
