@@ -195,7 +195,7 @@ function deriveCoverage(pack) {
    composite sections take the id of their dominant half and the rest resolve
    through ALIASES in show(). A tidier id set is not worth a dead link. */
 const SECTIONS = [
-  { id: "snapshot",     label: "Scope",                render: secScope },
+  { id: "snapshot",     label: "TLDR",                 render: secScope },
   { id: "plan",         label: "Plan",                 render: secPlan,
     when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
     count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
@@ -263,7 +263,7 @@ function secSnapshot(p, d, ctx) {
         return `<span class="rb-person ${cls}"><b>${esc(x.name)}</b><i>${x.open} open</i></span>`;
       }).join("")}${load.unassigned
         ? `<span class="rb-person is-heavy"><b>Unassigned</b><i>${load.unassigned}</i></span>` : ""}</div>`
-    : `<p class="rb-empty">No roster captured yet — owner load and assignment are unavailable until there is one.</p>`;
+    : `<p class="rb-empty">No roster captured yet.</p>`;
 
   // Zone 3 — WHAT'S NEEDED
   const blockers = arr(p.actionItems)
@@ -288,18 +288,10 @@ function secSnapshot(p, d, ctx) {
           <div${edIn(ctx, "client", "rb-eyebrow")}>${esc(p.client)}</div>
           <h1${edIn(ctx, "title", "rb-h1")}>${esc(p.title || "RFP brief")}</h1>
         </div>
-        <div class="rb-actions">
-          <button class="rb-btn rb-btn-primary" data-action="start-meeting">Start meeting</button>
-        </div>
       </div>
 
       ${deadline}
       ${askParas ? `<div class="rb-zone" style="margin-top:0">${askParas}</div>` : ""}
-
-      <div class="rb-zone rb-pulse">
-        ${tileReadiness(d.readiness)}
-        ${tileCountdown(d.criticalPath)}
-      </div>
 
       ${verdict}
 
@@ -308,7 +300,6 @@ function secSnapshot(p, d, ctx) {
         <p class="rb-sub rb-small" style="margin-bottom:12px">${esc(p.client)}${
           lead ? ` · our response lead is <b>${esc(lead.name)}</b>` : ""}</p>
         ${whoBody}
-        ${lineOwnerLoad(d.ownerLoad)}
       </div>
 
       <div class="rb-zone">
@@ -324,8 +315,7 @@ function secSnapshot(p, d, ctx) {
                 <span class="rb-need-owner">${b.owner ? esc(b.owner) : "unassigned"}</span>
                 <span class="rb-need-due ${late ? "is-late" : ""}">${b.due ? esc(fmtDate(b.due)) : "—"}</span></li>`;
             }).join("")}</ul>`
-          : `<p class="rb-empty">No open action items — either the work is done or nothing has been captured yet.</p>`}
-        ${lineCoverage(d.coverage)}
+          : `<p class="rb-empty">No open action items.</p>`}
       </div>
 
       ${outlook}
@@ -557,37 +547,51 @@ const statusPill = (s) => `<span class="rb-status" data-s="${s}">${STATUS_LABEL[
 /* Scope: the snapshot, with The Ask folded in underneath rather than living in
    its own tab. It was skipped as "pretty straightforward" in every session —
    it is narrative context for the screen above it, not a destination. */
+/* No "the ask, in full" fold. The TLDR already opens with the ask in two plain
+   sentences and the verdict beneath it; repeating the same content one click
+   down is the duplication this tab exists to avoid. What was only in the fold —
+   background and what-done-looks-like — is one edit away in the pack and belongs
+   in the summary if it earns the space. */
 function secScope(p, d, ctx) {
-  const ask = has(p.ask) || ctx.edit
-    ? `<details class="rb-fold" data-el="ask">
-         <summary><span class="rb-caret" aria-hidden="true"></span>The ask, in full</summary>
-         <div class="rb-fold-body">${secAsk(p, d, ctx).replace(/^[\s\S]*?<div class="rb-measure">/, '<div class="rb-measure">')}</div>
-       </details>`
-    : "";
-  return secSnapshot(p, d, ctx) + ask;
+  return secSnapshot(p, d, ctx);
 }
 
 /* Plan: where we are, what is next, who owns it. Key Dates and the Action
    Checklist answered halves of one question and neither could give the
    "where are we today" view on its own. The timeline is the frame; the
    checklist is the content, so the timeline collapses once there is work. */
+/* Plan is the status tab. Readiness, the critical path and who is carrying what
+   all moved HERE from the TLDR, because they answer "how are we doing" and the
+   TLDR answers "what is this" — two different questions that were sharing one
+   screen and making it a dashboard instead of a read-out. */
 function secPlan(p, d, ctx) {
   const items = arr(p.actionItems);
   const dates = secDates(p, d, ctx);
   const timelineOpen = !items.length;
-  return head("Plan", "What is due next, and who owns it.") +
+  return head("Plan") +
+    `<div class="rb-zone rb-pulse" style="margin-top:0">
+       ${tileReadiness(d.readiness)}
+       ${tileCountdown(d.criticalPath)}
+     </div>` +
     `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
-       <summary><span class="rb-caret" aria-hidden="true"></span>Stage and key dates</summary>
+       <summary><span class="rb-caret" aria-hidden="true"></span>Key dates</summary>
        <div class="rb-fold-body">${dates.replace(/^[\s\S]*?<\/h2>\s*(<p class="rb-sub">[\s\S]*?<\/p>)?/, "")}</div>
      </details>` +
-    secChecklist(p, d, ctx);
+    secChecklist(p, d, ctx) +
+    /* Was "owner load", which nobody could parse — it read as a person's
+       availability rather than a count of what this pursuit is asking of them.
+       Named for what it actually is, and placed with the checklist it counts. */
+    (d.ownerLoad.ok
+      ? `<div class="rb-group"><div class="rb-group-head"><span>Who's carrying what</span></div>
+           <div style="margin-top:12px">${heatmap(d.ownerLoad)}</div></div>`
+      : "");
 }
 
 /* Compliance: submission rules plus client requirements. Asked to describe the
    difference between the two as separate tabs, readers could not: "are they the
    same thing? Are we looking at two different things here?" */
 function secCompliance(p, d, ctx) {
-  return head("Compliance", "What the response must contain, and what it must satisfy.") +
+  return head("Compliance") +
     secRules(p, d, ctx) + secRequirements(p, d, ctx);
 }
 
@@ -597,13 +601,12 @@ function secChecklist(p, d, ctx) {
   const add = addBtn(ctx, "actionItems", "Add an item");
 
   if (!items.length) return subhead("What we need from you") + add +
-    `<p class="rb-empty">No action items captured yet. The kickoff is where these get created and assigned.</p>`;
+    `<p class="rb-empty">No action items yet.</p>`;
 
   const owners = [...new Set(items.map((i) => i.owner || "Unassigned"))]
     .sort((a, b) => (a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b)));
 
-  return subhead("What we need from you",
-    "Every input the response needs from a human. Each line is answerable without opening an RFP document.") +
+  return subhead("What we need from you") +
     add +
     owners.map((o) => {
       const mine = items.filter((i) => (i.owner || "Unassigned") === o);
@@ -639,16 +642,12 @@ function secChecklist(p, d, ctx) {
     }).join("");
 }
 
-/* ---------- 3. The Ask ---------- */
-function secAsk(p, d, ctx) {
-  const a = p.ask || {};
-  const blocks = [["", a.summary, "ask.summary"], ["Background", a.background, "ask.background"],
-                  ["What done looks like", a.doneLooksLike, "ask.doneLooksLike"]];
-  return head("The ask") + `<div class="rb-measure">` +
-    blocks.filter(([, v]) => has(v) || ctx.edit).map(([k, v, path]) =>
-      `${k ? `<h3 class="rb-h3" style="margin-top:var(--rb-s4)">${k}</h3>` : ""}
-       <p${edIn(ctx, path, "rb-ask")} style="margin-top:${k ? 8 : 0}px">${esc(v || "")}</p>`).join("") + `</div>`;
-}
+/* ---------- The Ask ----------
+   No section, no fold. The TLDR opens with ask.summary and ask.background as
+   editable prose, which is the whole of what people read. ask.doneLooksLike is
+   still carried in the pack and still exported to /DRAFT — it is simply not
+   given a tab of its own, because a tab that repeats the screen above it is the
+   duplication this restructure removed. */
 
 /* ---------- 4. Key Dates ---------- */
 function secDates(p, d) {
@@ -678,8 +677,7 @@ function secRules(p, d, ctx) {
   const rules = arr(p.rules);
   if (!rules.length) return "";
   const done = rules.filter((r) => r.checked).length;
-  return subhead("Submission rules",
-    "Miss one of these and the bid is non-compliant regardless of quality.") +
+  return subhead("Submission rules") +
     `<p class="rb-small rb-muted">${done} of ${rules.length} confirmed.</p>
      <ul class="rb-rows">${rules.map((r) => `
       <li data-el="rule-${esc(r.id)}"><div class="rb-row" style="--rb-c1:0px;--rb-c2:88px;--rb-c3:150px">
@@ -725,7 +723,7 @@ function secEvaluation(p, d, ctx) {
           <li><span>${esc(c.name)}${c.mandatory ? ' <span class="rb-chip rb-chip-mand">gate</span>' : ""}</span>
             <span class="rb-weight-bar"><i style="width:${((c.weight || 0) / max) * 100}%"></i></span>
             <span class="rb-weight-num">${esc(c.weight)}%</span></li>`).join("")}</ul>`
-      : `<p class="rb-empty">No scoring weights stated in the documents.</p>`) +
+      : `<p class="rb-empty">No scoring weights stated.</p>`) +
     /* Was "Pass / fail gates" — a misleading name over mis-modelled content.
        Nobody could relate it to the weights beside it ("what percentage means
        that I fail?") because these are not thresholds: they are stated
@@ -777,7 +775,7 @@ function secRequirements(p, d, ctx) {
   });
 
   return subhead("Client requirements",
-    `${plural(reqs.length, "requirement")}${allMust ? ", all mandatory" : ""}. Click a line for the verbatim source text.`) +
+    `${plural(reqs.length, "requirement")}${allMust ? ", all mandatory" : ""}`) +
     (d.coverage.ok ? `<div class="rb-card" style="padding:18px 20px">${matrix(d.coverage)}</div>` : "") +
     themes.map((th) => listBlock(ctx, `req:${th}`, th,
       reqs.filter((r) => (r.theme || "Ungrouped") === th).map(rowFor),
@@ -799,8 +797,7 @@ function secTeam(p, d) {
     ? `${hoursOf(c).toLocaleString()} hrs`
     : (Number(c.fte) ? `${c.fte} FTE` : "\u2014");
   const DIST = { front: "front-loaded", back: "back-loaded", even: "spread evenly" };
-  return head("Team & burden",
-    "What DELIVERING this would take \u2014 not what responding to it takes. Marked DRAFT and deliberately lean; the workshop challenges it upward, not down.") +
+  return head("Team & burden", "To deliver, not to respond. DRAFT.") +
     (arr(p.roster).length
       ? `<div class="rb-group"><div class="rb-group-head"><span>Roster</span><span class="rb-nav-count">${p.roster.length}</span></div>
          <ul class="rb-rows">${p.roster.map((r) => `
@@ -819,7 +816,7 @@ function secTeam(p, d) {
              <span class="rb-row-text">${esc(c.name)}</span><span></span>
              <span class="rb-meta r">${arr(c.requirementIds).length ? esc(c.requirementIds.join(", ")) : ""}</span>
              <b class="rb-meta r" style="color:var(--rb-ink)">${esc(effortOf(c))}</b></div></li>`).join("")}</ul></div>`
-      : `<p class="rb-empty">No competency breakdown captured.</p>`)
+      : `<p class="rb-empty">No competency breakdown.</p>`)
     +
     (arr(t.keyPersonnel).length
       ? `<div class="rb-group"><div class="rb-group-head"><span>Key personnel mandates</span><span class="rb-nav-count">${t.keyPersonnel.length}</span></div>
@@ -827,8 +824,7 @@ function secTeam(p, d) {
            <span class="rb-row-text">${esc(typeof k === "string" ? k : k.text || k.name)}</span>
            <span></span><span></span><span></span></div></li>`).join("")}</ul></div>` : "")
     +
-    (d.ownerLoad.ok ? `<div class="rb-group"><div class="rb-group-head"><span>Open response items per person</span></div>
-       <div style="margin-top:12px">${heatmap(d.ownerLoad)}</div></div>` : "");
+    "";   // who is carrying what lives in Plan — this tab is about delivery, not response workload
 }
 
 /* Collapsed sections are a viewing preference, not content — they belong to the
@@ -871,7 +867,7 @@ function secQuestions(p, d, ctx) {
       </div>
     </div>` : "";
   const headBlock = `<div class="rb-sec-head">
-      ${head("Questions for client", "Submission-ready wording. Copy straight into the Q&A response.")}
+      ${head("Questions for client")}
       ${exportBtn}
     </div>`;
 
@@ -1100,17 +1096,17 @@ function secRisks(p, d, ctx) {
          esc(typeof x === "string" ? x : x.basis)}${
          typeof x === "object" && x.source ? ` <span class="rb-src">(${esc(x.source)})</span>` : ""}</span></li>`).join("")}</ul></div>` : "";
 
-  return head("Risks & signals", "How likely we are to win, and what would get in the way.") +
+  return head("Risks & signals") +
     (has(s.winLikelihood)
-      ? `<div class="rb-verdict"><p><b>Win likelihood — DRAFT</b><span><b>${esc(s.winLikelihood)}</b>. A judgement read off the signals below, not a computed number.</span></p></div>` : "") +
+      ? `<div class="rb-verdict"><p><b>Win likelihood — DRAFT</b><span><b>${esc(s.winLikelihood)}</b></span></p></div>` : "") +
     `<div class="rb-signals">
       ${group("Working against us", s.red, "red")}
       ${group("Working for us", s.green, "green")}
       ${/* "beige" tested badly — nobody could guess what it meant or which
             direction it pointed. Renamed to soft signals in schema v4; the old
             key is still read for packs cached before this deploy. */""}
-      ${group("Soft signals — read between the lines, not stated", s.soft || s.beige, "beige")}
-      ${arr(s.unknown).length ? `<p class="rb-small rb-muted">Still unknown: ${esc(s.unknown.join(", "))} — recorded as unknown rather than guessed.</p>` : ""}
+      ${group("Soft signals", s.soft || s.beige, "beige")}
+      ${arr(s.unknown).length ? `<p class="rb-small rb-muted">Still unknown: ${esc(s.unknown.join(", "))}</p>` : ""}
     </div>` +
     (risks.length
       ? `<div class="rb-group"><div class="rb-group-head"><span>Risks</span><span class="rb-nav-count">${risks.length}</span></div>
@@ -1124,13 +1120,13 @@ function secRisks(p, d, ctx) {
                     because you cannot edit what you cannot see. */""}
               ${(has(r.detail) || has(r.mitigation) || has(r.strategicResponse) || ctx.edit)
                 ? `<details class="rb-expand rb-risk-more"${ctx.edit ? " open" : ""}>
-                     <summary><span class="rb-caret" aria-hidden="true"></span>Why, and how we answer it</summary>
+                     <summary><span class="rb-caret" aria-hidden="true"></span>Detail</summary>
                      <div class="rb-expand-body">
                        ${has(r.detail) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].detail`, "rb-sub rb-small")}>${esc(r.detail || "")}</p>` : ""}
                        ${has(r.mitigation) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].mitigation`, "rb-mitigation")}>${esc(r.mitigation || "")}</p>` : ""}
                        ${has(r.strategicResponse)
-                         ? `<p${edIn(ctx, `risks[id=${r.id}].strategicResponse`, "rb-strategy")}><b>How we answer it in the proposal \u2014 DRAFT:</b> ${esc(r.strategicResponse)}</p>`
-                         : `<p class="rb-small rb-muted">No proposal response drafted yet \u2014 re-run /RFP to have one suggested.</p>`}
+                         ? `<p${edIn(ctx, `risks[id=${r.id}].strategicResponse`, "rb-strategy")}><b>Our response:</b> ${esc(r.strategicResponse)}</p>`
+                         : ""}
                      </div></details>`
                 : ""}
             </div>
@@ -1143,7 +1139,7 @@ function secDecisions(p) {
   const ds = arr(p.decisions), pl = arr(p.parkingLot), ms = arr(p.meetings);
   if (!ds.length && !pl.length && !ms.length)
     return head("Record") +
-      `<p class="rb-empty">Nothing recorded yet. Decisions land here when they're captured in a meeting — a decision exists because someone wrote it down, not because it was discussed.</p>`;
+      `<p class="rb-empty">Nothing recorded yet.</p>`;
   const row = (main, meta) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
     <span class="rb-row-text"><b>${main}</b><br><span class="rb-meta">${meta}</span></span>
     <span></span><span></span><span></span></div></li>`;
@@ -1151,7 +1147,7 @@ function secDecisions(p) {
      dumb name". Placed last in the nav because nobody reaches for it first
      ("more of an afterthought tab"), but kept, because "everybody needs to have
      one place where they have equal visibility". */
-  return head("Record", "What was decided, what is still open, and where the conversations happened.") +
+  return head("Record") +
     (ds.length ? `<div class="rb-group"><div class="rb-group-head"><span>Decisions made</span><span class="rb-nav-count">${ds.length}</span></div>
       <ul class="rb-rows">${ds.map((x) => row(esc(x.text || x.decision),
         [x.by, fmtDate(x.at), x.meeting, x.binds].filter(has).map(esc).join(" · "))).join("")}</ul></div>` : "") +
@@ -1169,9 +1165,9 @@ function secDecisions(p) {
 /* ---------- 12. Document Map ---------- */
 function secDocuments(p, d, ctx) {
   const docs = arr(p.documents);
-  if (!docs.length) return head("Document map") + `<p class="rb-empty">No source documents recorded.</p>`;
+  if (!docs.length) return head("Documents") + `<p class="rb-empty">No source documents recorded.</p>`;
   const anyMissing = docs.some((doc) => !doc.unreadable && !ctx.resolveDoc(doc));
-  return head("Document map", "A launcher, not a bibliography. Hover any file for a preview.") +
+  return head("Documents") +
     (anyMissing ? `<div class="rb-notice">Source files stay on the machine that imported the
        pack — they are never uploaded, because this site has no sign-in. Everyone sees the same
        brief; the files themselves open only where they were imported.</div>` : "") +

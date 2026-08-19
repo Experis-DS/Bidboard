@@ -1,13 +1,13 @@
 {
   "hubName": "Bid Board",
-  "hubVersion": "1.2.0",
-  "baseUrl": "",
+  "hubVersion": "1.4.0",
+  "baseUrl": "https://experis-ds.github.io/Bidboard/",
   "owner": "Experis-DS",
   "ownerPassword": "experis",
   "analytics": {
     "measurementId": "",
     "note": "GA4 measurement ID, format G-XXXXXXXXXX. Leave empty and no Google script loads at all."
   },
-  "notes": "baseUrl is filled in after the first deploy — it is the URL pasted into the /RFP skill as BRIEF_SITE_URL. ownerPassword gates the Site owner skills on the Skills page — cosmetic friction, not security; the .skill files are still at static URLs.",
+  "notes": "baseUrl is the URL pasted into the /RFP skill as BRIEF_SITE_URL. hubVersion is the only version stamp the site has and it is what the header pill shows — bump it with ./ship.sh, never by hand. ownerPassword gates the Site owner skills on the Skills page: cosmetic friction, not security, since the .skill files sit at static URLs.",
   "createdAt": "2026-08-06T19:10:44.648Z"
 }

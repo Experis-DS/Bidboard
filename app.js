@@ -107,19 +107,33 @@ function track(name, params = {}) {
 function paintConnection() {
   if (globalThis.__DEMO_PACKS__) {
     for (const el of [$("#connPill"), $("#briefConn")]) {
-      el.textContent = "Demo"; el.dataset.mode = "local";
+      el.textContent = CONFIG.hubVersion ? `v${CONFIG.hubVersion} demo` : "Demo";
+      el.dataset.mode = "local";
+      el.setAttribute("aria-label", `Demo build, version ${CONFIG.hubVersion || "unknown"}`);
       el.title = "Sample data baked into this file. Nothing is saved and nobody else sees it.";
     }
     return;
   }
+  /* The pill shows the deployed VERSION; the dot shows the state.
+     "Shared" was the right word exactly once — the first time you read it. After
+     that it is a constant, and a constant tells you nothing. What people
+     actually need from this corner is "am I looking at the build I just pushed?",
+     which is unanswerable on a static site with no other stamp.
+
+     The mode is not lost, it moves to the dot: green shared, red offline, grey
+     local-only. Colour alone is never the only carrier — the tooltip still says
+     it in words, and the version is prefixed for screen readers. */
   const mode = !navigator.onLine ? "offline" : store.mode;
   const label = { shared: "Shared", local: "Local only", offline: "Offline" }[mode];
+  const ver = CONFIG.hubVersion ? `v${CONFIG.hubVersion}` : "—";
   for (const el of [$("#connPill"), $("#briefConn")]) {
-    el.textContent = label;
+    el.textContent = ver;
     el.dataset.mode = mode;
-    el.title = mode === "shared" ? "Imports are visible to everyone on this site."
-      : mode === "local" ? "No shared storage configured — imports stay in this browser."
-      : "No network. Showing what's cached in this browser.";
+    el.setAttribute("aria-label", `${label} · version ${CONFIG.hubVersion || "unknown"}`);
+    el.title = (mode === "shared" ? "Shared — imports are visible to everyone on this site."
+      : mode === "local" ? "Local only — no shared storage configured, so imports stay in this browser."
+      : "Offline — showing what's cached in this browser.")
+      + `\nBid Board ${ver}`;
   }
 }
 
@@ -223,8 +237,7 @@ function paintLibrary() {
     <div class="page-head">
       <div class="eyebrow">Library</div>
       <h1 class="h1">Opportunities</h1>
-      <p class="sub" style="margin-top:6px">${LIBRARY.length} imported${
-        soon ? ` · <b style="color:var(--urgent)">${soon} due within a week</b>` : ""}.</p>
+      ${soon ? `<p class="sub" style="margin-top:6px"><b style="color:var(--urgent)">${soon} due this week</b></p>` : ""}
     </div>
     <div class="filters">
       ${["all", "open", "soon", "closed"].map((f) => `
@@ -321,14 +334,14 @@ function card(p) {
       ? `<div class="small muted">Needs a newer pack — built for schema v${esc(p.schemaVersion)}.</div>`
       : bits.length || lift
       ? `<div class="card-state">${lift}<span>${bits.join(" · ")}</span></div>`
-      : `<div class="card-state"><span class="muted">Open it to see what is needed.</span></div>`}
+      : ""}
 
     <div class="card-foot">
       ${ready !== null && !stale ? `<div class="card-ready">
         <span class="num">${ready}%</span>
         <span class="bar"><i style="width:${ready}%"></i></span>
         <span>ready</span></div>` : ""}
-      <div class="card-prov">${esc(p.importedBy || "—")} · imported ${esc(ago(p.importedAt))}</div>
+      <div class="card-prov" title="${esc(p.importedBy || "unknown")} · imported ${esc(ago(p.importedAt))}">${esc(ago(p.importedAt))}</div>
     </div></a>`;
 }
 
