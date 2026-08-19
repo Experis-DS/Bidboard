@@ -165,7 +165,7 @@ const wrap = (html, narrow) => `<div class="wrap ${narrow ? "wrap-narrow" : ""}"
    ============================================================ */
 async function screenLibrary() {
   screen.innerHTML = wrap(`
-    <div class="page-head"><div class="eyebrow">Library</div><h1 class="h1">Pursuits</h1></div>
+    <div class="page-head"><div class="eyebrow">Library</div><h1 class="h1">Opportunities</h1></div>
     <div class="cards">${'<div class="skel"></div>'.repeat(3)}</div>`);
 
   LIBRARY = await listPursuits();
@@ -187,7 +187,7 @@ function paintEmpty() {
   screen.innerHTML = wrap(`
     <div class="page-head">
       <div class="eyebrow">Library</div>
-      <h1 class="h1">No pursuits yet</h1>
+      <h1 class="h1">No opportunities yet</h1>
       <p class="sub" style="margin-top:8px">Four steps. The first is a one-time setup.</p>
     </div>
     ${STEPS}
@@ -208,7 +208,7 @@ const STEPS = `
 const modeNote = () => globalThis.__DEMO_PACKS__ ? DEMO_NOTE : store.mode === "local" ? LOCAL_NOTE : "";
 
 const DEMO_NOTE = `<div class="notice notice-quiet">
-  <b>Demo.</b> Sample pursuits are baked into this file so you can click around. Nothing is
+  <b>Demo.</b> Sample opportunities are baked into this file so you can click around. Nothing is
   saved, nothing is shared, and the Import screen works on real /RFP bundles if you have one.</div>`;
 
 const LOCAL_NOTE = `<div class="notice notice-quiet">
@@ -222,15 +222,15 @@ function paintLibrary() {
   screen.innerHTML = wrap(`
     <div class="page-head">
       <div class="eyebrow">Library</div>
-      <h1 class="h1">Pursuits</h1>
+      <h1 class="h1">Opportunities</h1>
       <p class="sub" style="margin-top:6px">${LIBRARY.length} imported${
         soon ? ` · <b style="color:var(--urgent)">${soon} due within a week</b>` : ""}.</p>
     </div>
     <div class="filters">
-      ${["all", "active", "decided", "submitted"].map((f) => `
+      ${["all", "open", "soon", "closed"].map((f) => `
         <button class="chip" data-filter="${f}" aria-pressed="${view.filter === f}"
           ${counts(f) ? "" : "disabled"}>${
-          { all: "All", active: "Active", decided: "No-bid", submitted: "Submitted" }[f]
+          { all: "All", open: "Open", soon: "Due this week", closed: "Closed" }[f]
         }<b>${counts(f)}</b></button>`).join("")}
       <span class="spacer"></span>
       <input type="search" id="q" placeholder="Search client or id" value="${esc(view.q)}">
@@ -253,11 +253,17 @@ function paintLibrary() {
   $("#sort").addEventListener("change", (e) => { view.sort = e.target.value; paintCards(); });
 }
 
+/* Filters derive from the DEADLINE, never from a stage field.
+   The six-step pipeline was removed because nothing keeps it honest: it only
+   moves when a human remembers to move it, and a stale "Drafting" on a pursuit
+   submitted three weeks ago is worse than no label at all. A deadline is in the
+   documents, so these buckets are always true without anyone maintaining them. */
 function matchFilter(p, f) {
   if (f === "all") return true;
-  if (f === "decided") return p.stage === "no-bid";
-  if (f === "submitted") return p.stage === "submitted";
-  return !["no-bid", "submitted"].includes(p.stage);
+  const d = days(p.deadline);
+  if (f === "soon")   return d !== null && d >= 0 && d <= 7;
+  if (f === "closed") return d !== null && d < 0;
+  return d === null || d >= 0;                 // "open"
 }
 
 function paintCards() {
@@ -281,9 +287,25 @@ function paintCards() {
 function card(p) {
   const d = days(p.deadline);
   const stale = p.schemaVersion > CURRENT_SCHEMA || p.schemaVersion < MIN_SCHEMA;
-  const closed = ["submitted", "no-bid"].includes(p.stage);
   const state = d === null ? "" : d < 0 ? "is-past" : d <= 7 ? "is-urgent" : "";
   const ready = typeof p.readiness === "number" ? Math.round(p.readiness * 100) : null;
+  const c = p.counts || {};
+
+  /* WHAT IS OUTSTANDING, not how many requirements exist.
+     The old line read "22 reqs · 16 open" and two separate readers parsed it as
+     Bullhorn requisitions — "that would be number of job opportunities… that's
+     how we would qualify in Bullhorn" — then could not say what the 22 meant.
+     In a staffing company "reqs" is a reserved word, and a raw inventory count
+     is not a reason to click anyway. What earns the space is what is unfinished
+     and whether anyone owns it. */
+  const bits = [];
+  if (typeof c.openItems === "number") {
+    bits.push(c.openItems ? `${plural(c.openItems, "open item")}` : "nothing outstanding");
+  }
+  if (c.unassigned) bits.push(`<b class="card-warn">${c.unassigned} unassigned</b>`);
+  if (c.atRisk) bits.push(`<b class="card-warn">${c.atRisk} at risk</b>`);
+  const lift = p.responseLift && p.responseLift.size
+    ? `<span class="card-lift" title="Effort to respond">${esc(p.responseLift.size)}</span>` : "";
 
   return `<a class="card ${stale ? "stale" : ""} ${state}" href="#/b/${esc(p.briefId)}">
     <div class="card-client">${esc(p.client)}</div>
@@ -295,8 +317,9 @@ function card(p) {
 
     ${stale
       ? `<div class="small muted">Needs a newer pack — built for schema v${esc(p.schemaVersion)}.</div>`
-      : `<div class="card-stage ${closed ? "is-closed" : ""}">${esc(STAGE_LABEL[p.stage] || p.stage || "Stage not set")}${
-          p.counts ? ` · ${p.counts.requirements} reqs · ${p.counts.openItems} open` : ""}</div>`}
+      : bits.length || lift
+      ? `<div class="card-state">${lift}<span>${bits.join(" · ")}</span></div>`
+      : `<div class="card-state"><span class="muted">Open it to see what is needed.</span></div>`}
 
     <div class="card-foot">
       ${ready !== null && !stale ? `<div class="card-ready">
@@ -431,7 +454,7 @@ function importReview() {
       anyone with this site's URL. Confirm that's intended.</div>` : ""}
     ${modeNote() ? `<div style="margin-top:12px">${modeNote()}</div>` : ""}
     <p style="margin-top:24px;display:flex;gap:8px">
-      <button class="btn btn-primary" id="doImport">${up ? "Update the pursuit" : "Import it"}</button>
+      <button class="btn btn-primary" id="doImport">${up ? "Update the opportunity" : "Import it"}</button>
       <a class="btn" href="#/import">Cancel</a></p>`);
 
   $("#doImport").addEventListener("click", doImport);
@@ -507,7 +530,7 @@ async function screenBrief(briefId, section) {
     $("#hubHead").hidden = false; $("#briefBar").hidden = true;
     return (screen.innerHTML = wrap(`
       <div class="page-head"><div><h1 class="h1">Not found</h1>
-        <p class="sub">No pursuit called <code>${esc(briefId)}</code> is in this library.</p></div></div>
+        <p class="sub">No opportunity called <code>${esc(briefId)}</code> is in this library.</p></div></div>
       <p><a class="btn" href="#/">Back to the library</a>
          <a class="btn" href="#/import">Import it</a></p>`, true));
   }
@@ -515,7 +538,7 @@ async function screenBrief(briefId, section) {
 
   const pack = await getPack(briefId);
   if (!pack) return (screen.innerHTML = wrap(`
-    <div class="notice bad">This pursuit is in the library but its content isn't cached on this
+    <div class="notice bad">This opportunity is in the library but its content isn't cached on this
     device and the site can't reach shared storage right now.</div>`, true));
 
   // Pre-resolve hosted asset URLs so the renderer stays synchronous.
@@ -533,10 +556,16 @@ async function screenBrief(briefId, section) {
     me: localStorage.getItem("hub.editor") || "",
     onNavigate: (id) => history.replaceState(null, "", `#/b/${briefId}/${id}`),
     onDerive: (m) => {
-      const changed = m.readiness !== BRIEF.idx.readiness || JSON.stringify(m.counts) !== JSON.stringify(BRIEF.idx.counts);
+      /* The Library card reads these. Persisting them here means the counts are
+         refreshed by the act of someone opening the brief — self-healing for
+         pursuits imported before the card learned to show them. */
+      const patch = { readiness: m.readiness, counts: m.counts, responseLift: m.responseLift || null };
+      const changed = m.readiness !== BRIEF.idx.readiness
+        || JSON.stringify(m.counts) !== JSON.stringify(BRIEF.idx.counts)
+        || JSON.stringify(patch.responseLift) !== JSON.stringify(BRIEF.idx.responseLift);
       if (changed) {
-        BRIEF.idx = { ...BRIEF.idx, readiness: m.readiness, counts: m.counts };
-        updateIndex(briefId, { readiness: m.readiness, counts: m.counts }).catch(() => {});
+        BRIEF.idx = { ...BRIEF.idx, ...patch };
+        updateIndex(briefId, patch).catch(() => {});
       }
     },
     onEdit: applyEdit,
@@ -972,7 +1001,7 @@ function bindBriefBar(briefId, idx, pack, api) {
         <dt>Hub</dt><dd>${esc(CONFIG.hubVersion)}</dd>
       </dl>
       <p class="small muted" style="margin-top:14px">A redeploy of this site updates the renderer for
-      every pursuit at once — packs are data, so nothing needs re-importing.</p>`);
+      every opportunity at once — packs are data, so nothing needs re-importing.</p>`);
     /* Bulk cleanup for rows that were added and never filled in. Deliberately
        narrow: only rows an override created, still carrying the exact default
        text, with no field edits of their own. Anything a person typed into is
@@ -1035,7 +1064,7 @@ function bindBriefBar(briefId, idx, pack, api) {
     }
     if (what === "restore") openRestore(briefId);
     if (what === "delete") {
-      const ok = prompt(`Type the pursuit id to delete it permanently:\n${briefId}`);
+      const ok = prompt(`Type the opportunity id to delete it permanently:\n${briefId}`);
       if (ok !== briefId) return;
       await deletePursuit(briefId);
       LIBRARY = await listPursuits();
@@ -1182,11 +1211,11 @@ const HELP_STEPS = [
     body: `In your AI tool of choice — Claude, Copilot, etc — add all of the relevant RFP documents
            into one project folder and say <code>run /rfp</code>.` },
   { art: "assets/help/bundle.svg",
-    title: "Save the pursuit pack",
+    title: "Save the opportunity pack",
     body: `The AI tool will create one zip file that ends in <code>-rfp-bundle.zip</code>. We will
            call this the <b>pursuit pack</b>.` },
   { art: "assets/help/import.svg",
-    title: "Upload the pursuit pack",
+    title: "Upload the opportunity pack",
     body: `Up at the top of this page, click <b>Import a pursuit</b> and add it. This populates all
            the relevant information into an indexed <b>pursuit</b> you can open from the home page.` },
 ];
@@ -1194,7 +1223,7 @@ const HELP_STEPS = [
 const DECK_STEPS = [
   { art: "assets/help/export-pack.svg",
     title: "Export the pack from the brief",
-    body: `Open the pursuit and click <b>Export pack</b>. You get a JSON file built to drop
+    body: `Open the opportunity and click <b>Export pack</b>. You get a JSON file built to drop
            straight into the microsite template, so the deck starts from what the brief
            already knows and nothing is retyped.` },
   { art: "assets/help/draft-deck.svg",
@@ -1226,7 +1255,7 @@ const HELP_NOTES = {
   brief: [
     { h: "What's actually in the zip",
       p: `A <b>pack</b> — the RFP turned into data: requirements, dates, owners, risks, questions.
-          This site draws the brief from that data, so when the design improves every pursuit
+          This site draws the brief from that data, so when the design improves every opportunity
           improves at once and nobody re-does anything.` },
     { h: "If import refuses the file",
       p: `It will say why in plain words. Almost always it means the copy of <code>/rfp</code> that

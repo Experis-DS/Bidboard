@@ -813,3 +813,26 @@ body.cm-open .cm-fab{ display:none; }
   .cm-panel{ width:100vw; border-left:0; }
   .cm-fab span:not(.cm-count):not(.cm-bubble){ display:none; }
 }
+
+/* ============================================================
+   V2 — the Library card
+   The old state line read "22 reqs · 16 open". Two readers independently
+   parsed "reqs" as Bullhorn requisitions and neither could say what the 22
+   meant. In a staffing company "reqs" is a reserved word, and an inventory
+   total is not a reason to click. What earns the space is what is unfinished.
+   ============================================================ */
+
+.card-state {
+  display: inline-flex; align-items: baseline; gap: 8px;
+  font-size: var(--t-small); color: var(--gray); align-self: end;
+}
+.card-warn { color: var(--urgent); font-weight: 650; }
+
+/* Effort to respond — S / M / L. The single most-requested field in the
+   research: competency leaders decline bids on response lift alone. */
+.card-lift {
+  flex: none; min-width: 20px; text-align: center;
+  font-size: var(--t-micro); font-weight: 700; letter-spacing: .02em;
+  padding: 2px 6px; border-radius: 5px;
+  border: 1px solid var(--line); color: var(--ink);
+}

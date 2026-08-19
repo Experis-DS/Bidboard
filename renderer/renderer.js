@@ -54,6 +54,9 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
 const pct = (x) => Math.round(x * 100);
 const bytes = (b) => (!b ? "" : b > 1e6 ? (b / 1e6).toFixed(1) + " MB" : Math.round(b / 1e3) + " KB");
 
+/* Retained for the schema's stageHistory field, which /RFP still records for
+   provenance, but NOT rendered anywhere: a self-reported pipeline stage rots.
+   Do not reintroduce a stepper from this without a way to keep it honest. */
 const STAGES = [
   ["ingested", "Ingested"], ["bid-decision", "Bid decision"], ["workshop", "Workshop"],
   ["drafting", "Drafting"], ["review", "Review"], ["submitted", "Submitted"],
@@ -267,7 +270,11 @@ function secSnapshot(p, d, ctx) {
     .filter((i) => i.status !== "done")
     .sort((a, b) => (daysFromNow(a.due) ?? 9e3) - (daysFromNow(b.due) ?? 9e3))
     .slice(0, 5);
-  const stageLabel = (STAGES.find((s) => s[0] === p.stage) || [, "Stage not set"])[1];
+  /* No stage label. It was self-reported and nothing kept it honest, so it went
+     stale and taught people to distrust the board. What replaces it is derived
+     and therefore always true: how much is outstanding, and how long is left. */
+  const openCount = arr(p.actionItems).filter((i) => i.status !== "done").length;
+  const unowned = arr(p.actionItems).filter((i) => i.status !== "done" && !i.owner).length;
 
   const outlook = p.signals?.winLikelihood
     ? `<div class="rb-zone rb-outlook">Outlook: <b>${esc(p.signals.winLikelihood)}</b>${
@@ -306,8 +313,10 @@ function secSnapshot(p, d, ctx) {
 
       <div class="rb-zone">
         <div class="rb-zone-head"><span>What's needed next</span></div>
-        <p class="rb-sub rb-small" style="margin-bottom:12px"><b>${esc(stageLabel)}</b>${
-          subDays !== null && subDays >= 0 ? ` — submission in ${plural(subDays, "day")}` : ""}</p>
+        <p class="rb-sub rb-small" style="margin-bottom:12px"><b>${
+          openCount ? plural(openCount, "open item") : "Nothing outstanding"}</b>${
+          unowned ? ` \u00b7 ${unowned} unassigned` : ""}${
+          subDays !== null && subDays >= 0 ? ` \u2014 submission in ${plural(subDays, "day")}` : ""}</p>
         ${blockers.length
           ? `<ul class="rb-needs">${blockers.map((b) => {
               const late = daysFromNow(b.due) < 0;
@@ -566,7 +575,7 @@ function secPlan(p, d, ctx) {
   const items = arr(p.actionItems);
   const dates = secDates(p, d, ctx);
   const timelineOpen = !items.length;
-  return head("Plan", "Where the pursuit stands, what is due next, and who owns it.") +
+  return head("Plan", "What is due next, and who owns it.") +
     `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
        <summary><span class="rb-caret" aria-hidden="true"></span>Stage and key dates</summary>
        <div class="rb-fold-body">${dates.replace(/^[\s\S]*?<\/h2>\s*(<p class="rb-sub">[\s\S]*?<\/p>)?/, "")}</div>
@@ -643,23 +652,23 @@ function secAsk(p, d, ctx) {
 
 /* ---------- 4. Key Dates ---------- */
 function secDates(p, d) {
-  const idx = STAGES.findIndex((s) => s[0] === p.stage);
-  const stepper = `<div class="rb-stepper">${STAGES.map(([id, label], me) => {
-    const stamp = arr(p.stageHistory).find((h) => h.stage === id);
-    return `<span class="rb-step ${me < idx ? "is-done" : ""} ${me === idx ? "is-current" : ""}">
-      <span>${esc(label)}${stamp ? ` <span class="rb-micro rb-muted">${esc(fmtDate(stamp.at))}</span>` : ""}</span></span>`;
-  }).join("")}</div>`;
-
+  /* The six-step stage stepper was REMOVED, not restyled.
+     It only ever moved when a human remembered to move it, and a pursuit
+     showing "Drafting" three weeks after it was submitted is worse than showing
+     nothing — it teaches people the board is stale. Everything here is derived
+     from dates in the documents instead, so it cannot rot. The one thing the
+     stepper was genuinely good for — "where are we today" — is the TODAY marker
+     and the muted past dates below. */
   const rows = d.criticalPath.ok ? d.criticalPath.milestones : [];
   const firstUpcoming = rows.findIndex((m) => m.days >= 0);
-  return head("Key dates") + stepper +
+  return subhead("Key dates") +
     (rows.length
       ? `<ul class="rb-timeline">${rows.map((m, i) => `
           <li class="${m.days < 0 ? "is-past" : ""} ${i === firstUpcoming ? "is-next" : ""}" data-el="date-${esc(m.id || i)}">
-            <div class="rb-tl-date">${esc(m.id === "submission" ? fmtDeadline(m.date) : fmtDate(m.date))} · ${
+            <div class="rb-tl-date">${esc(m.id === "submission" ? fmtDeadline(m.date) : fmtDate(m.date))} \u00b7 ${
               m.days < 0 ? `${Math.abs(m.days)} days ago` : `in ${plural(m.days, "day")}`}</div>
             <div class="rb-tl-title">${esc(m.label)}</div>
-            ${has(m.ourAction) && m.ourAction !== "—" ? `<div class="rb-sub rb-small">We must: ${esc(m.ourAction)}</div>` : ""}
+            ${has(m.ourAction) && m.ourAction !== "\u2014" ? `<div class="rb-sub rb-small">We must: ${esc(m.ourAction)}</div>` : ""}
           </li>`).join("")}</ul>`
       : `<p class="rb-empty">No dates captured.</p>`);
 }
@@ -1246,11 +1255,20 @@ export function renderBrief(pack, mount, opts = {}) {
   const d = derive(pack);
   o.onDerive({
     readiness: d.readiness.ok ? d.readiness.value : null,
+    /* What the Library card shows. Requirement COUNT is kept for the nav badge
+       but is deliberately not what a card leads with: readers parsed "22 reqs"
+       as Bullhorn requisitions, and an inventory total is not a reason to click.
+       Unassigned and at-risk are, because they are unfinished work. */
     counts: {
       requirements: arr(pack.requirements).length,
       openItems: arr(pack.actionItems).filter((i) => i.status !== "done").length,
       questions: arr(pack.questions).length,
+      unassigned: arr(pack.actionItems).filter((i) => i.status !== "done" && !i.owner).length,
+      atRisk: [...arr(pack.actionItems), ...arr(pack.requirements)]
+        .filter((r) => rowStatus(r, { mandatoryMatters: true }) === "atRisk").length,
     },
+    responseLift: pack.responseLift && pack.responseLift.size
+      ? { size: pack.responseLift.size, basis: pack.responseLift.basis || "" } : null,
   });
 
   const docsByName = Object.fromEntries(arr(pack.documents).map((x) => [x.file, x]));
