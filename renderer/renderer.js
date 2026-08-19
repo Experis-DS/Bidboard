@@ -183,20 +183,36 @@ function deriveCoverage(pack) {
    "nothing captured" makes a thin pack look like a broken tool.
    ============================================================ */
 
+/* EIGHT nav sections, down from twelve. "You could probably be down to at least
+   a third less tabs" — and the four nobody could tell apart (Rules &
+   Constraints, Evaluation, Requirements, Pass/Fail Gates) collapse into two.
+
+   Section IDS ARE PRESERVED even where labels and contents merged, because
+   #/b/<pursuit>/requirements links are already shared in Teams threads. New
+   composite sections take the id of their dominant half and the rest resolve
+   through ALIASES in show(). A tidier id set is not worth a dead link. */
 const SECTIONS = [
-  { id: "snapshot",     label: "Snapshot",             render: secSnapshot },
-  { id: "checklist",    label: "Action Checklist",     render: secChecklist,    when: (p) => has(p.actionItems), count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
-  { id: "ask",          label: "The Ask",              render: secAsk,          when: (p) => has(p.ask) },
-  { id: "dates",        label: "Key Dates",            render: secDates,        when: (p) => has(p.dates) || has(p.submission), count: (p) => arr(p.dates).length || null },
-  { id: "rules",        label: "Rules & Constraints",  render: secRules,        when: (p) => has(p.rules), count: (p) => arr(p.rules).length || null },
+  { id: "snapshot",     label: "Scope",                render: secScope },
+  { id: "plan",         label: "Plan",                 render: secPlan,
+    when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
+    count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
+  { id: "compliance",   label: "Compliance",           render: secCompliance,
+    when: (p) => has(p.rules) || has(p.requirements),
+    count: (p) => (arr(p.rules).length + arr(p.requirements).length) || null },
   { id: "evaluation",   label: "Scorecard",            render: secEvaluation,   when: (p) => has(p.scorecard) || has(p.evaluation) },
-  { id: "requirements", label: "Requirements",         render: secRequirements, when: (p) => has(p.requirements), count: (p) => arr(p.requirements).length || null },
   { id: "team",         label: "Team & Burden",        render: secTeam,         when: (p) => has(p.team) || has(p.roster) },
-  { id: "questions",    label: "Questions for Client", render: secQuestions,    when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
+  { id: "questions",    label: "Questions",            render: secQuestions,    when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
   { id: "risks",        label: "Risks & Signals",      render: secRisks,        when: (p) => has(p.risks) || has(p.signals) },
-  { id: "decisions",    label: "Decisions",            render: secDecisions,    when: (p) => has(p.decisions) || has(p.parkingLot) || has(p.meetings), count: (p) => arr(p.decisions).length || null },
-  { id: "documents",    label: "Document Map",         render: secDocuments,    when: (p) => has(p.documents), count: (p) => arr(p.documents).length || null },
+  { id: "decisions",    label: "Record",               render: secDecisions,    when: (p) => has(p.decisions) || has(p.parkingLot) || has(p.meetings), count: (p) => arr(p.decisions).length || null },
+  /* Documents is a LAUNCHER, not a page: the way it gets used is "bam, bam,
+     bam, you can get the docs you need". chrome:true keeps it out of the nav
+     and reachable from the header, which removes a tab and makes it available
+     from every section instead of one. */
+  { id: "documents",    label: "Documents",            render: secDocuments,    chrome: true, when: (p) => has(p.documents), count: (p) => arr(p.documents).length || null },
 ];
+
+/* Old routes keep working. */
+const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "plan", rules: "compliance", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
 
 /* ---------- 1. Snapshot ---------- */
 
@@ -458,47 +474,159 @@ const statusSelect = (id, coll, value) => `
     ${STATUSES.map((s) => `<option${s === (value || "open") ? " selected" : ""}>${s}</option>`).join("")}
   </select>`;
 
+
+/* ---------- the shared list ----------
+   Standing rule from the feedback sessions: EVERY list gets filter, collapse and
+   a status. It is a pattern, not a per-section judgement — there are nine lists
+   in this brief and hand-rolling filters per section is how they diverge.
+
+   Filtering is CSS, driven by data-filter on the wrapper. That is deliberate:
+   re-rendering to filter would destroy focus, selection and any half-typed
+   value in edit mode, and would fight the live-sync guard in app.js. Nothing
+   about the pack changes when you filter, so nothing should re-render.
+
+   Status vocabulary is three values and only three — done | open | atRisk —
+   identical in every list. atRisk is DERIVED here at render time, never stored,
+   or it goes stale the moment a due date passes. */
+
+const rowStatus = (row, { mandatoryMatters = false } = {}) => {
+  const s = String(row.status || (row.checked ? "done" : "open")).toLowerCase();
+  if (s === "done" || row.checked) return "done";
+  const dd = daysFromNow(row.due);
+  const late = dd !== null && dd < 3;
+  const unowned = mandatoryMatters && row.mandatory && !row.owner;
+  return late || unowned ? "atRisk" : "open";
+};
+
+const STATUS_LABEL = { done: "done", open: "open", atRisk: "at risk" };
+
+/* rows: [{ html, status, owner }] */
+function listBlock(ctx, key, title, rows, opts = {}) {
+  if (!rows.length) return "";
+  const n = (s) => rows.filter((r) => r.status === s).length;
+  const owners = new Set(rows.map((r) => r.owner).filter(Boolean));
+  const collapsed = ctx.collapsed.has(key);
+
+  const chip = (id, label, count, on) => count === 0 && id !== "all" ? "" :
+    `<button type="button" class="rb-chip-f" data-lchip="${id}" data-list="${esc(key)}"
+       aria-pressed="${on}">${label}<span class="rb-chip-n">${count}</span></button>`;
+
+  const showMine = !!ctx.me && owners.has(ctx.me);
+  const controls = `<div class="rb-chips" role="group" aria-label="Filter ${esc(title)}">
+      ${chip("all", "All", rows.length, true)}
+      ${chip("open", "Open", n("open"), false)}
+      ${chip("atRisk", "At risk", n("atRisk"), false)}
+      ${chip("done", "Done", n("done"), false)}
+      ${showMine ? chip("mine", "Mine", rows.filter((r) => r.owner === ctx.me).length, false) : ""}
+    </div>`;
+
+  return `<div class="rb-group rb-list" data-list="${esc(key)}" data-filter="all">
+    <div class="rb-group-head">
+      <button type="button" class="rb-collapse" data-lcollapse="${esc(key)}"
+        aria-expanded="${!collapsed}"><span class="rb-caret" aria-hidden="true"></span>${esc(title)}</button>
+      <span class="rb-nav-count">${plural(rows.length, opts.unit || "item")}</span>
+    </div>
+    <div class="rb-list-body"${collapsed ? " hidden" : ""}>
+      ${/* Standing rule: every list gets filters. Offer them when there is
+            actually something to filter BY — more than one status present, or a
+            list long enough that scanning it is work. A single chip row over
+            three identical rows is noise, not affordance. */""}
+      ${(rows.length > 3 || new Set(rows.map((r) => r.status)).size > 1 || showMine) ? controls : ""}
+      <ul class="rb-rows">${rows.map((r) =>
+        `<li data-status="${r.status}"${r.owner ? ` data-owner="${esc(r.owner)}"` : ""}${
+          r.el ? ` data-el="${esc(r.el)}"` : ""}>${r.html}</li>`).join("")}</ul>
+      <p class="rb-empty rb-filter-empty" hidden>Nothing matches that filter.</p>
+    </div>
+  </div>`;
+}
+
+const statusPill = (s) => `<span class="rb-status" data-s="${s}">${STATUS_LABEL[s]}</span>`;
+
+
+/* ---------- composite sections (the 12 -> 8 merge) ---------- */
+
+/* Scope: the snapshot, with The Ask folded in underneath rather than living in
+   its own tab. It was skipped as "pretty straightforward" in every session —
+   it is narrative context for the screen above it, not a destination. */
+function secScope(p, d, ctx) {
+  const ask = has(p.ask) || ctx.edit
+    ? `<details class="rb-fold" data-el="ask">
+         <summary><span class="rb-caret" aria-hidden="true"></span>The ask, in full</summary>
+         <div class="rb-fold-body">${secAsk(p, d, ctx).replace(/^[\s\S]*?<div class="rb-measure">/, '<div class="rb-measure">')}</div>
+       </details>`
+    : "";
+  return secSnapshot(p, d, ctx) + ask;
+}
+
+/* Plan: where we are, what is next, who owns it. Key Dates and the Action
+   Checklist answered halves of one question and neither could give the
+   "where are we today" view on its own. The timeline is the frame; the
+   checklist is the content, so the timeline collapses once there is work. */
+function secPlan(p, d, ctx) {
+  const items = arr(p.actionItems);
+  const dates = secDates(p, d, ctx);
+  const timelineOpen = !items.length;
+  return head("Plan", "Where the pursuit stands, what is due next, and who owns it.") +
+    `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
+       <summary><span class="rb-caret" aria-hidden="true"></span>Stage and key dates</summary>
+       <div class="rb-fold-body">${dates.replace(/^[\s\S]*?<\/h2>\s*(<p class="rb-sub">[\s\S]*?<\/p>)?/, "")}</div>
+     </details>` +
+    secChecklist(p, d, ctx);
+}
+
+/* Compliance: submission rules plus client requirements. Asked to describe the
+   difference between the two as separate tabs, readers could not: "are they the
+   same thing? Are we looking at two different things here?" */
+function secCompliance(p, d, ctx) {
+  return head("Compliance", "What the response must contain, and what it must satisfy.") +
+    secRules(p, d, ctx) + secRequirements(p, d, ctx);
+}
+
 /* ---------- 2. Action Checklist ---------- */
 function secChecklist(p, d, ctx) {
   const items = arr(p.actionItems);
   const add = addBtn(ctx, "actionItems", "Add an item");
 
-  if (!items.length) return head("What we need from you") + add +
+  if (!items.length) return subhead("What we need from you") + add +
     `<p class="rb-empty">No action items captured yet. The kickoff is where these get created and assigned.</p>`;
 
   const owners = [...new Set(items.map((i) => i.owner || "Unassigned"))]
     .sort((a, b) => (a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b)));
 
-  return head("What we need from you",
+  return subhead("What we need from you",
     "Every input the response needs from a human. Each line is answerable without opening an RFP document.") +
     add +
     owners.map((o) => {
       const mine = items.filter((i) => (i.owner || "Unassigned") === o);
-      const open = mine.filter((i) => i.status !== "done").length;
-      return `<div class="rb-group">
-        <div class="rb-group-head"><span>${esc(o)}</span><span class="rb-nav-count">${open} open of ${mine.length}</span></div>
-        <ul class="rb-rows">${mine.map((i) => {
-          const late = i.status !== "done" && daysFromNow(i.due) < 0;
-          if (ctx.edit) return `<li data-el="action-${esc(i.id)}"><div class="rb-row is-edit">
-            <span class="rb-id">${esc(i.id || "")}</span>
-            <input class="rb-in rb-in-text" data-edit="task" data-coll="actionItems" data-id="${esc(i.id)}"
-                   value="${esc(i.task)}" aria-label="Task">
-            ${ownerSelect(ctx, i.id, "actionItems", i.owner)}
-            <input class="rb-in" type="date" data-edit="due" data-coll="actionItems" data-id="${esc(i.id)}"
-                   value="${esc(dateVal(i.due))}" aria-label="Due date">
-            ${statusSelect(i.id, "actionItems", i.status)}
-            <button class="rb-del" data-del="actionItems" data-id="${esc(i.id)}" title="Delete item"
-                    aria-label="Delete ${esc(i.id)}">×</button>
-          </div></li>`;
-          return `<li data-el="action-${esc(i.id)}"><div class="rb-row" style="--rb-c1:62px;--rb-c2:104px;--rb-c3:104px">
-            <span class="rb-id">${esc(i.id || "")}</span>
-            <span class="rb-row-text ${i.status === "done" ? "is-done" : ""}">${esc(i.task)}</span>
-            <span class="rb-meta r">${i.requirementId
-              ? `<a href="#" data-goto="requirements" data-el="req-${esc(i.requirementId)}">${esc(i.requirementId)}</a>` : ""}</span>
-            <span class="rb-meta r ${late ? "is-late" : ""}">${i.due ? esc(fmtDate(i.due)) + (late ? " · late" : "") : ""}</span>
-            <span class="rb-status" data-s="${esc(i.status || "open")}">${esc(i.status || "open")}</span>
-          </div></li>`;
-        }).join("")}</ul></div>`;
+      return listBlock(ctx, `act:${o}`, o, mine.map((i) => {
+        const st = rowStatus(i);
+        const late = st !== "done" && daysFromNow(i.due) < 0;
+        return {
+          status: st,
+          owner: i.owner || "",
+          el: `action-${i.id}`,
+          html: ctx.edit
+            ? `<div class="rb-row is-edit">
+                 <span class="rb-id">${esc(i.id || "")}</span>
+                 <input class="rb-in rb-in-text" data-edit="task" data-coll="actionItems" data-id="${esc(i.id)}"
+                        value="${esc(i.task)}" aria-label="Task">
+                 ${ownerSelect(ctx, i.id, "actionItems", i.owner)}
+                 <input class="rb-in" type="date" data-edit="due" data-coll="actionItems" data-id="${esc(i.id)}"
+                        value="${esc(dateVal(i.due))}" aria-label="Due date">
+                 ${statusSelect(i.id, "actionItems", i.status)}
+                 <button class="rb-del" data-del="actionItems" data-id="${esc(i.id)}" title="Delete item"
+                         aria-label="Delete ${esc(i.id)}">×</button>
+               </div>`
+            : `<div class="rb-row" style="--rb-c1:62px;--rb-c2:104px;--rb-c3:104px">
+                 <span class="rb-id">${esc(i.id || "")}</span>
+                 <span class="rb-row-text ${st === "done" ? "is-done" : ""}">${esc(i.task)}</span>
+                 <span class="rb-meta r">${i.requirementId
+                   ? `<a href="#" data-goto="compliance" data-el="req-${esc(i.requirementId)}">${esc(i.requirementId)}</a>` : ""}</span>
+                 <span class="rb-meta r ${late ? "is-late" : ""}">${i.due ? esc(fmtDate(i.due)) + (late ? " · late" : "") : ""}</span>
+                 ${statusPill(st)}
+               </div>`,
+        };
+      }), { unit: "item" });
     }).join("");
 }
 
@@ -539,9 +667,9 @@ function secDates(p, d) {
 /* ---------- 5. Rules & Constraints ---------- */
 function secRules(p, d, ctx) {
   const rules = arr(p.rules);
-  if (!rules.length) return head("Rules & constraints") + `<p class="rb-empty">No submission mechanics captured.</p>`;
+  if (!rules.length) return "";
   const done = rules.filter((r) => r.checked).length;
-  return head("Rules & constraints",
+  return subhead("Submission rules",
     "Miss one of these and the bid is non-compliant regardless of quality.") +
     `<p class="rb-small rb-muted">${done} of ${rules.length} confirmed.</p>
      <ul class="rb-rows">${rules.map((r) => `
@@ -606,46 +734,64 @@ function secEvaluation(p, d, ctx) {
 /* ---------- 7. Requirements ---------- */
 function secRequirements(p, d, ctx) {
   const reqs = arr(p.requirements);
-  if (!reqs.length) return head("Requirements") + `<p class="rb-empty">No requirements extracted.</p>`;
+  if (!reqs.length) return "";
   const themes = [...new Set(reqs.map((r) => r.theme || "Ungrouped"))];
 
-  return head("Requirements", `${reqs.length} in total. Click a line for the verbatim source text.`) +
+  /* If EVERY requirement is mandatory the chip carries no information and reads
+     as alarm — "everything is a must… it's making me feel worried". State it
+     once in the subheading and drop the per-row chips. */
+  const allMust = reqs.every((r) => r.mandatory);
+
+  const rowFor = (r) => ({
+    status: rowStatus(r, { mandatoryMatters: true }),
+    owner: r.owner || "",
+    el: `req-${r.id}`,
+    html: `<div class="rb-row" style="--rb-c1:70px;--rb-c2:78px;--rb-c3:104px">
+        <span class="rb-id">${esc(r.id)}</span>
+        <span class="rb-row-text">${ctx.edit
+          ? `<span${ed(ctx, `requirements[id=${r.id}].text`)}>${esc(r.text)}</span>`
+          : has(r.verbatim) || has(r.source)
+          ? `<details class="rb-expand rb-inline"><summary>${esc(r.text)}</summary>
+               <div class="rb-expand-body rb-measure">
+                 ${has(r.verbatim) ? `<p style="white-space:pre-wrap">${esc(r.verbatim)}</p>` : ""}
+                 <p class="rb-src" style="margin-top:8px">${srcLink(r.source, ctx)}</p>
+               </div></details>`
+          : esc(r.text)}</span>
+        <span class="rb-meta r">${!allMust && r.mandatory ? `<span class="rb-chip rb-chip-mand">must</span>` : ""}</span>
+        <span class="rb-meta r">${ctx.edit
+          ? ownerSelect(ctx, r.id, "requirements", r.owner)
+          : esc(r.owner || "unowned")}</span>
+        ${ctx.edit
+          ? statusSelect(r.id, "requirements", r.status)
+          : statusPill(rowStatus(r, { mandatoryMatters: true }))}
+      </div>`,
+  });
+
+  return subhead("Client requirements",
+    `${plural(reqs.length, "requirement")}${allMust ? ", all mandatory" : ""}. Click a line for the verbatim source text.`) +
     (d.coverage.ok ? `<div class="rb-card" style="padding:18px 20px">${matrix(d.coverage)}</div>` : "") +
-    themes.map((t) => {
-      const group = reqs.filter((r) => (r.theme || "Ungrouped") === t);
-      return `<div class="rb-group">
-        <div class="rb-group-head"><span>${esc(t)}</span><span class="rb-nav-count">${group.length}</span></div>
-        <ul class="rb-rows">${group.map((r) => `
-          <li data-el="req-${esc(r.id)}">
-            <div class="rb-row" style="--rb-c1:70px;--rb-c2:78px;--rb-c3:104px">
-              <span class="rb-id">${esc(r.id)}</span>
-              <span class="rb-row-text">${ctx.edit
-                ? `<span${ed(ctx, `requirements[id=${r.id}].text`)}>${esc(r.text)}</span>`
-                : has(r.verbatim) || has(r.source)
-                ? `<details class="rb-expand rb-inline"><summary>${esc(r.text)}</summary>
-                     <div class="rb-expand-body rb-measure">
-                       ${has(r.verbatim) ? `<p style="white-space:pre-wrap">${esc(r.verbatim)}</p>` : ""}
-                       <p class="rb-src" style="margin-top:8px">${srcLink(r.source, ctx)}</p>
-                     </div></details>`
-                : esc(r.text)}</span>
-              <span class="rb-meta r">${r.mandatory ? `<span class="rb-chip rb-chip-mand">must</span>` : ""}</span>
-              <span class="rb-meta r">${ctx.edit
-                ? ownerSelect(ctx, r.id, "requirements", r.owner)
-                : esc(r.owner || "unowned")}</span>
-              ${ctx.edit
-                ? statusSelect(r.id, "requirements", r.status)
-                : `<span class="rb-status" data-s="${esc(r.status || "open")}">${esc(r.status || "open")}</span>`}
-            </div>
-          </li>`).join("")}</ul></div>`;
-    }).join("");
+    themes.map((th) => listBlock(ctx, `req:${th}`, th,
+      reqs.filter((r) => (r.theme || "Ungrouped") === th).map(rowFor),
+      { unit: "requirement" })).join("");
 }
 
 /* ---------- 8. Team & Burden ---------- */
 function secTeam(p, d) {
   const t = p.team || {};
   const comps = arr(t.competencies);
+  /* HOURS, not fractional FTE. "What's 0.3 of a full-time employee? It's tough
+     to easily think about how much work that actually equates to" — and in a
+     staffing company FTE reads as permanent headcount, not effort. Hours lead;
+     the FTE figure follows as secondary text where the pack still carries it. */
+  const hoursOf = (c) => (Number(c.hours) || 0);
+  const totalHours = comps.reduce((s, c) => s + hoursOf(c), 0);
   const totalFte = comps.reduce((s, c) => s + (Number(c.fte) || 0), 0);
-  return head("Team & burden", "Marked DRAFT and deliberately lean — the workshop challenges it upward, not down.") +
+  const effortOf = (c) => hoursOf(c)
+    ? `${hoursOf(c).toLocaleString()} hrs`
+    : (Number(c.fte) ? `${c.fte} FTE` : "\u2014");
+  const DIST = { front: "front-loaded", back: "back-loaded", even: "spread evenly" };
+  return head("Team & burden",
+    "What DELIVERING this would take \u2014 not what responding to it takes. Marked DRAFT and deliberately lean; the workshop challenges it upward, not down.") +
     (arr(p.roster).length
       ? `<div class="rb-group"><div class="rb-group-head"><span>Roster</span><span class="rb-nav-count">${p.roster.length}</span></div>
          <ul class="rb-rows">${p.roster.map((r) => `
@@ -655,12 +801,15 @@ function secTeam(p, d) {
     +
     (comps.length
       ? `<div class="rb-group"><div class="rb-group-head"><span>Competencies the RFP demands</span>
-           <span class="rb-nav-count">${totalFte.toFixed(1)} FTE draft</span></div>
+           <span class="rb-nav-count">${totalHours
+             ? `${totalHours.toLocaleString()} hrs draft`
+             : `${totalFte.toFixed(1)} FTE draft`}${
+             has(t.distribution) ? ` \u00b7 ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span></div>
          <ul class="rb-rows">${comps.map((c) => `
            <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:180px;--rb-c3:70px">
              <span class="rb-row-text">${esc(c.name)}</span><span></span>
              <span class="rb-meta r">${arr(c.requirementIds).length ? esc(c.requirementIds.join(", ")) : ""}</span>
-             <b class="rb-meta r" style="color:var(--rb-ink)">${esc(c.fte)} FTE</b></div></li>`).join("")}</ul></div>`
+             <b class="rb-meta r" style="color:var(--rb-ink)">${esc(effortOf(c))}</b></div></li>`).join("")}</ul></div>`
       : `<p class="rb-empty">No competency breakdown captured.</p>`)
     +
     (arr(t.keyPersonnel).length
@@ -669,7 +818,7 @@ function secTeam(p, d) {
            <span class="rb-row-text">${esc(typeof k === "string" ? k : k.text || k.name)}</span>
            <span></span><span></span><span></span></div></li>`).join("")}</ul></div>` : "")
     +
-    (d.ownerLoad.ok ? `<div class="rb-group"><div class="rb-group-head"><span>Current load</span></div>
+    (d.ownerLoad.ok ? `<div class="rb-group"><div class="rb-group-head"><span>Open response items per person</span></div>
        <div style="margin-top:12px">${heatmap(d.ownerLoad)}</div></div>` : "");
 }
 
@@ -942,7 +1091,7 @@ function secRisks(p, d, ctx) {
          esc(typeof x === "string" ? x : x.basis)}${
          typeof x === "object" && x.source ? ` <span class="rb-src">(${esc(x.source)})</span>` : ""}</span></li>`).join("")}</ul></div>` : "";
 
-  return head("Risks & signals") +
+  return head("Risks & signals", "How likely we are to win, and what would get in the way.") +
     (has(s.winLikelihood)
       ? `<div class="rb-verdict"><p><b>Win likelihood — DRAFT</b><span><b>${esc(s.winLikelihood)}</b>. A judgement read off the signals below, not a computed number.</span></p></div>` : "") +
     `<div class="rb-signals">
@@ -960,8 +1109,21 @@ function secRisks(p, d, ctx) {
             <div class="rb-sev">${esc(r.severity || "")}</div>
             <div>
               <div${edIn(ctx, `risks[id=${r.id}].title`, "rb-risk-title")}>${esc(r.title)}</div>
-              ${has(r.detail) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].detail`, "rb-sub rb-small")} style="margin-top:2px">${esc(r.detail || "")}</p>` : ""}
-              ${has(r.mitigation) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].mitigation`, "rb-mitigation")}>${esc(r.mitigation || "")}</p>` : ""}
+              ${/* Collapsed by default so the list stays scannable: "the only thing
+                    maybe you could consider doing is having it minimized and then you
+                    have the option to hit like a little plus". In edit mode it opens,
+                    because you cannot edit what you cannot see. */""}
+              ${(has(r.detail) || has(r.mitigation) || has(r.strategicResponse) || ctx.edit)
+                ? `<details class="rb-expand rb-risk-more"${ctx.edit ? " open" : ""}>
+                     <summary><span class="rb-caret" aria-hidden="true"></span>Why, and how we answer it</summary>
+                     <div class="rb-expand-body">
+                       ${has(r.detail) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].detail`, "rb-sub rb-small")}>${esc(r.detail || "")}</p>` : ""}
+                       ${has(r.mitigation) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].mitigation`, "rb-mitigation")}>${esc(r.mitigation || "")}</p>` : ""}
+                       ${has(r.strategicResponse)
+                         ? `<p${edIn(ctx, `risks[id=${r.id}].strategicResponse`, "rb-strategy")}><b>How we answer it in the proposal \u2014 DRAFT:</b> ${esc(r.strategicResponse)}</p>`
+                         : `<p class="rb-small rb-muted">No proposal response drafted yet \u2014 re-run /RFP to have one suggested.</p>`}
+                     </div></details>`
+                : ""}
             </div>
             ${delBtn(ctx, "risks", r.id)}
           </div>`).join("")}</div></div>` : "") + addBtn(ctx, "risks", "Add a risk");
@@ -971,19 +1133,23 @@ function secRisks(p, d, ctx) {
 function secDecisions(p) {
   const ds = arr(p.decisions), pl = arr(p.parkingLot), ms = arr(p.meetings);
   if (!ds.length && !pl.length && !ms.length)
-    return head("Decisions & parking lot") +
+    return head("Record") +
       `<p class="rb-empty">Nothing recorded yet. Decisions land here when they're captured in a meeting — a decision exists because someone wrote it down, not because it was discussed.</p>`;
   const row = (main, meta) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
     <span class="rb-row-text"><b>${main}</b><br><span class="rb-meta">${meta}</span></span>
     <span></span><span></span><span></span></div></li>`;
-  return head("Decisions & parking lot") +
-    (ds.length ? `<div class="rb-group"><div class="rb-group-head"><span>Decisions</span><span class="rb-nav-count">${ds.length}</span></div>
+  /* "Decisions" alone was ambiguous — pending, or made? And "parking lot is a
+     dumb name". Placed last in the nav because nobody reaches for it first
+     ("more of an afterthought tab"), but kept, because "everybody needs to have
+     one place where they have equal visibility". */
+  return head("Record", "What was decided, what is still open, and where the conversations happened.") +
+    (ds.length ? `<div class="rb-group"><div class="rb-group-head"><span>Decisions made</span><span class="rb-nav-count">${ds.length}</span></div>
       <ul class="rb-rows">${ds.map((x) => row(esc(x.text || x.decision),
         [x.by, fmtDate(x.at), x.meeting, x.binds].filter(has).map(esc).join(" · "))).join("")}</ul></div>` : "") +
-    (pl.length ? `<div class="rb-group"><div class="rb-group-head"><span>Parking lot</span><span class="rb-nav-count">${pl.length}</span></div>
+    (pl.length ? `<div class="rb-group"><div class="rb-group-head"><span>Open items</span><span class="rb-nav-count">${pl.length}</span></div>
       <ul class="rb-rows">${pl.map((x) => row(esc(x.text),
         [x.by, x.why, x.disposition || "open"].filter(has).map(esc).join(" · "))).join("")}</ul></div>` : "") +
-    (ms.length ? `<div class="rb-group"><div class="rb-group-head"><span>Meeting history</span><span class="rb-nav-count">${ms.length}</span></div>
+    (ms.length ? `<div class="rb-group"><div class="rb-group-head"><span>Meetings</span><span class="rb-nav-count">${ms.length}</span></div>
       <ul class="rb-rows">${ms.map((m) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:110px;--rb-c3:110px">
         <span class="rb-row-text"><b>${esc(m.type)}</b></span><span></span>
         <span class="rb-meta r">${esc(fmtDate(m.date))}</span>
@@ -1026,6 +1192,13 @@ const docTarget = (doc) => VIEWABLE.includes(String(doc.type || "").toLowerCase(
   ? 'target="_blank" rel="noopener"' : `download="${esc(doc.file)}"`;
 
 /* ---------- shared bits ---------- */
+/* A heading for a block that lives INSIDE a composite section — one h2 per
+   screen, or the page grows two competing titles. */
+function subhead(title, sub) {
+  return `<h3 class="rb-h3 rb-subhead">${esc(title)}</h3>${
+    sub ? `<p class="rb-sub rb-small">${esc(sub)}</p>` : ""}`;
+}
+
 function head(title, sub) {
   return `<div><h1 class="rb-h1">${esc(title)}</h1>${
     sub ? `<p class="rb-sub" style="margin-top:7px">${esc(sub)}</p>` : ""}</div>`;
@@ -1050,7 +1223,7 @@ export function renderBrief(pack, mount, opts = {}) {
   const o = {
     section: "snapshot", mode: "read",
     onNavigate: () => {}, onDerive: () => {}, onMeetingStart: null,
-    onEdit: null,
+    onEdit: null, me: "",
     baseHref: "", headerHeight: 0,
     resolveDoc: null,
     ...opts,
@@ -1084,6 +1257,11 @@ export function renderBrief(pack, mount, opts = {}) {
   const ctx = {
     edit: o.mode === "edit" && !!o.onEdit,
     roster: [...new Set(arr(pack.roster).map((r) => r.name).filter(Boolean))],
+    /* Collapsed groups and "Mine" are viewing preferences, not content — they
+       belong to the person, not the pack. me is supplied by the host app; with
+       no name the Mine chip is simply not offered rather than shown broken. */
+    collapsed: readCollapsed(pack.briefId),
+    me: o.me || "",
     docByName: (n) => docsByName[n] || null,
     resolveDoc: (doc, page) => {
       if (!doc || doc.unreadable) return null;
@@ -1102,11 +1280,14 @@ export function renderBrief(pack, mount, opts = {}) {
     <div class="rb-shell">
       <nav class="rb-nav" aria-label="Brief sections">
         <div class="rb-nav-eyebrow">${esc(pack.client || "Brief")}</div>
-        ${live.map((s) => {
+        ${live.filter((s) => !s.chrome).map((s) => {
           const c = s.count ? s.count(pack) : null;
           return `<a href="#" data-goto="${s.id}"><span>${esc(s.label)}</span>${
             c ? `<span class="rb-nav-count">${c}</span>` : ""}</a>`;
         }).join("")}
+        ${live.some((s) => s.chrome && s.id === "documents")
+          ? `<a href="#" data-goto="documents" class="rb-nav-chrome"><span>Documents</span><span class="rb-nav-count">${arr(pack.documents).length}</span></a>`
+          : ""}
       </nav>
       <main class="rb-main"><div class="rb-col">
         ${live.map((s) => `<section class="rb-section" id="rb-${s.id}" data-section="${s.id}"></section>`).join("")}
@@ -1118,8 +1299,45 @@ export function renderBrief(pack, mount, opts = {}) {
   // links and print-all work without a second code path.
   for (const s of live) mount.querySelector(`#rb-${s.id}`).innerHTML = s.render(pack, d, ctx);
 
+  /* Filtering is a CSS state flip, not a re-render: re-rendering would destroy
+     focus and any half-typed value in edit mode, and would fight the live-sync
+     guard in the host app. Nothing about the pack changes when you filter. */
+  on("click", (e) => {
+    const chip = e.target.closest("[data-lchip]");
+    if (chip) {
+      e.preventDefault();
+      const list = chip.closest(".rb-list");
+      if (!list) return;
+      const want = chip.dataset.lchip;
+      list.dataset.filter = want;
+      list.querySelectorAll("[data-lchip]").forEach((b) =>
+        b.setAttribute("aria-pressed", String(b === chip)));
+      if (want === "mine" && ctx.me) list.dataset.mine = ctx.me;
+      // Tell the reader when a filter has hidden everything, rather than
+      // showing an empty box that reads as missing data.
+      const vis = [...list.querySelectorAll(".rb-rows > li")]
+        .filter((li) => getComputedStyle(li).display !== "none").length;
+      const empty = list.querySelector(".rb-filter-empty");
+      if (empty) empty.hidden = vis > 0;
+      return;
+    }
+    const col = e.target.closest("[data-lcollapse]");
+    if (col) {
+      e.preventDefault();
+      const key = col.dataset.lcollapse;
+      const list = col.closest(".rb-list");
+      const body = list?.querySelector(".rb-list-body");
+      const nowOpen = col.getAttribute("aria-expanded") !== "true";
+      col.setAttribute("aria-expanded", String(nowOpen));
+      if (body) body.hidden = !nowOpen;
+      if (nowOpen) ctx.collapsed.delete(key); else ctx.collapsed.add(key);
+      writeCollapsed(pack.briefId, ctx.collapsed);
+    }
+  });
+
   const show = (id, elId) => {
-    const target = live.some((s) => s.id === id) ? id : "snapshot";
+    const asked = SECTION_ALIASES[id] || id;
+    const target = live.some((s) => s.id === asked) ? asked : "snapshot";
     mount.querySelectorAll(".rb-section").forEach((el) =>
       el.setAttribute("data-active", String(el.dataset.section === target)));
     mount.querySelectorAll(".rb-nav a").forEach((a) =>

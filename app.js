@@ -527,6 +527,10 @@ async function screenBrief(briefId, section) {
   const opts = {
     section: section || "snapshot",
     headerHeight: 60,
+    /* Who is reading. Only used to offer the "Mine" filter chip — with no name
+       the chip is not offered rather than shown broken. Read without prompting:
+       asking for a name just to view a list would be the wrong trade. */
+    me: localStorage.getItem("hub.editor") || "",
     onNavigate: (id) => history.replaceState(null, "", `#/b/${briefId}/${id}`),
     onDerive: (m) => {
       const changed = m.readiness !== BRIEF.idx.readiness || JSON.stringify(m.counts) !== JSON.stringify(BRIEF.idx.counts);

@@ -799,3 +799,90 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 }
 
 @media (prefers-reduced-motion: reduce){ .cm-flash{ animation:none; } }
+
+/* ============================================================
+   V2 — the shared list (filter · collapse · status)
+   Standing rule from the feedback sessions: every list gets all three.
+   Filtering is a CSS state flip on [data-filter], never a re-render — a
+   re-render would destroy focus and any half-typed value in edit mode.
+   ============================================================ */
+
+.rb-list-body[hidden] { display: none; }
+
+.rb-collapse {
+  all: unset; cursor: pointer; font: inherit; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.rb-collapse:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 3px; border-radius: 4px; }
+.rb-caret {
+  width: 0; height: 0; flex: none;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  transition: transform .14s ease; opacity: .55;
+}
+.rb-collapse[aria-expanded="true"] .rb-caret,
+details[open] > summary .rb-caret { transform: rotate(90deg); }
+
+.rb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
+.rb-chip-f {
+  all: unset; cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 9px; border-radius: 999px;
+  border: 1px solid var(--rb-rule); color: var(--rb-gray-2);
+}
+.rb-chip-f:hover { border-color: var(--rb-gray-2); color: var(--rb-ink); }
+.rb-chip-f:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+.rb-chip-f[aria-pressed="true"] {
+  border-color: var(--rb-accent); color: var(--rb-accent); font-weight: 600;
+}
+.rb-chip-n { font-variant-numeric: tabular-nums; opacity: .7; }
+.rb-chip-f[aria-pressed="true"] .rb-chip-n { opacity: 1; }
+
+/* The filters themselves. Only three status values exist, everywhere. */
+.rb-list[data-filter="open"]   .rb-rows > li:not([data-status="open"])   { display: none; }
+.rb-list[data-filter="done"]   .rb-rows > li:not([data-status="done"])   { display: none; }
+.rb-list[data-filter="atRisk"] .rb-rows > li:not([data-status="atRisk"]) { display: none; }
+/* "Mine" is set as an attribute so the comparison stays in CSS. */
+.rb-list[data-filter="mine"] .rb-rows > li { display: none; }
+.rb-list[data-filter="mine"][data-mine] .rb-rows > li[data-owner] { display: revert; }
+
+/* Colour is rationed: the deadline red, and this three-state token. Two
+   participants asked for a red/amber/green scale; this is the concession, and
+   it means the same thing in every list. Anything more is the priority rainbow. */
+.rb-status[data-s="atRisk"] { color: var(--rb-bad, #b03a2e); font-weight: 600; }
+.rb-status[data-s="done"]   { color: var(--rb-gray-2); }
+
+/* A composite section owns one h2; its halves get this. */
+.rb-subhead { margin-top: var(--rb-s5); }
+.rb-subhead:first-of-type { margin-top: 0; }
+
+/* Folded blocks — The Ask inside Scope, the timeline inside Plan, the why
+   behind a risk. */
+.rb-fold { margin-top: var(--rb-s5); border-top: 1px solid var(--rb-rule); padding-top: 10px; }
+.rb-fold > summary,
+.rb-risk-more > summary {
+  cursor: pointer; list-style: none; font-size: 13px; font-weight: 600;
+  color: var(--rb-gray-2); display: inline-flex; align-items: center; gap: 6px;
+}
+.rb-fold > summary::-webkit-details-marker,
+.rb-risk-more > summary::-webkit-details-marker { display: none; }
+.rb-fold > summary:hover, .rb-risk-more > summary:hover { color: var(--rb-ink); }
+.rb-fold-body { margin-top: 10px; }
+.rb-risk-more { margin-top: 4px; }
+.rb-strategy { margin-top: 6px; font-size: 13px; }
+
+/* Today, in the timeline. Half a list of expired dates reads as noise without
+   a line telling you where you are. */
+.rb-timeline > li.is-past { opacity: .5; }
+.rb-timeline > li.is-next { position: relative; }
+.rb-timeline > li.is-next::after {
+  content: "today"; position: absolute; left: -4px; top: -9px;
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--rb-accent); font-weight: 700;
+}
+
+/* Documents sits outside the eight — it is a launcher, not one of the sections,
+   so it is separated at the foot of the nav rather than counted among them. */
+.rb-nav-chrome { margin-top: auto; border-top: 1px solid var(--rb-rule); padding-top: 10px !important; }
+.rb-nav-chrome span:first-child { color: var(--rb-gray-2); }
+.rb-nav-chrome:hover span:first-child { color: var(--rb-ink); }

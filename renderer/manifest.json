@@ -1,23 +1,47 @@
 {
-  "rendererVersion": "1.2.0",
-  "schemaSupport": { "min": 1, "max": 4 },
+  "rendererVersion": "2.0.0",
+  "schemaSupport": {
+    "min": 1,
+    "max": 4
+  },
   "entry": "renderer.js",
   "styles": "renderer.css",
-  "exports": ["renderBrief", "derive", "RENDERER_VERSION", "SCHEMA_SUPPORT"],
+  "exports": [
+    "renderBrief",
+    "derive",
+    "RENDERER_VERSION",
+    "SCHEMA_SUPPORT"
+  ],
   "implements": {
-    "sections": ["snapshot", "checklist", "ask", "dates", "rules", "evaluation",
-                 "requirements", "team", "questions", "risks", "decisions", "documents"],
-    "components": ["readiness", "criticalPath", "ownerLoad", "coverage"],
+    "sections": [
+      "snapshot (Scope)",
+      "plan",
+      "compliance",
+      "evaluation (Scorecard)",
+      "team",
+      "questions",
+      "risks",
+      "decisions (Record)",
+      "documents (launcher, not in nav)"
+    ],
+    "components": [
+      "readiness",
+      "criticalPath",
+      "ownerLoad",
+      "coverage"
+    ],
     "docPreviews": true,
     "editMode": true,
     "liveSync": true,
     "meetingMode": false,
-    "aiAssist": false
+    "aiAssist": false,
+    "listComponent": true
   },
   "changelog": [
+    "2.0.0 — the V2 information architecture, from four user-feedback sessions. Twelve nav sections become EIGHT: Snapshot absorbs The Ask (Scope); Key Dates + Action Checklist become Plan; Rules & Constraints + Requirements become Compliance; Evaluation + Pass/Fail Gates become Scorecard; Decisions & Parking Lot becomes Record, last. Document Map leaves the nav and sits as a separate launcher at its foot. Every list now shares one component: filter chips driven by its own statuses plus Mine, collapsible groups with persisted state, and a three-state status token (done | open | atRisk) that means the same thing everywhere — filtering is a CSS state flip, never a re-render, so it cannot disturb edit mode or fight live sync. Team & Burden estimates in HOURS not fractional FTE, with effort distribution; 'Current load' renamed because it read as personal availability. Risk detail collapses behind an expander and renders a suggested strategic response. Soft signals replaces 'beige'. The 'must' chip is suppressed when every row carries it. Old section routes (ask, checklist, dates, rules, requirements) resolve through aliases so shared links survive.",
     "1.2.0 — live edit sync: elements, activity and the pursuit index now stream over onSnapshot instead of being read once at load, so another person's edit reaches the open brief without a reload. Remote changes park while a field is focused and land on blur, so a re-render can never eat what someone is typing. Comment listener reconnects with backoff instead of degrading permanently on one blip. schemaSupport raised to 4. editMode declared honestly — it shipped in 1.1.x but the manifest still said false.",
     "1.1.0 — visual craft pass: one type scale, one row grid, one chip system, controlled measure, masthead + countdown pill, inline source disclosure, AA-safe greys.",
     "1.0.0 — first release: 12 sections read mode, four derived components, document previews."
   ],
-  "notes": "Fetch renderer.js + renderer.css from this directory and inline both to build a standalone brief. Do not fork — improvements here re-render every hosted pursuit on redeploy. The eight-section IA (Scope / Plan / Compliance / Scorecard / Team & Burden / Questions / Risks & Signals / Record + a Documents header menu) is the next change and will land as 2.0.0; `sections` above still lists the twelve this version renders."
+  "notes": "Fetch renderer.js + renderer.css from this directory and inline both to build a standalone brief. Do not fork — improvements here re-render every hosted pursuit on redeploy. Section IDS are preserved across the 12->8 merge and SECTION_ALIASES maps the retired ones, because #/b/<pursuit>/requirements links are already shared in Teams threads; a tidier id set is not worth a dead link."
 }
