@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "2.1.0";
+export const RENDERER_VERSION = "2.2.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -91,29 +91,29 @@ function deriveReadiness(pack) {
     const covered = reqs.filter((r) => r.owner && r.status && r.status !== "open").length;
     inputs.push({ key: "Requirements covered", value: covered / reqs.length, detail: `${covered} of ${reqs.length} owned and moving` });
   }
-  if (rules.length) {
-    const checked = rules.filter((r) => r.checked).length;
-    inputs.push({ key: "Rules & constraints checked", value: checked / rules.length, detail: `${checked} of ${rules.length}` });
-  }
-  if (!inputs.length) return { ok: false, why: "Readiness unavailable — no items, requirements or rules in the pack" };
+  /* Rules used to be a third input, scored on `checked`. They are constraints,
+     not tasks — see secRules — so a "rules confirmed" percentage was measuring
+     whether somebody had clicked, not whether we were ready. Two honest inputs
+     beat three with one of them made up. */
+  if (!inputs.length) return { ok: false, why: "Readiness unavailable — no action items or requirements in the pack" };
 
-  let value = inputs.reduce((s, i) => s + i.value, 0) / inputs.length;
+  const value = inputs.reduce((s, i) => s + i.value, 0) / inputs.length;
 
-  // Never read above 90% while a mandatory rule is unchecked.
-  const openMandatoryRule = rules.some((r) => r.mandatory && !r.checked);
-  const capped = openMandatoryRule && value > 0.9;
-  if (capped) value = 0.9;
-
+  /* Each gap is a place to go, not a sentence to read. Named collections so the
+     Readiness tab can link straight at the work. */
   const gaps = [];
   const unowned = reqs.filter((r) => !r.owner);
-  if (unowned.length) gaps.push(`${plural(unowned.length, "requirement")} unowned`);
+  if (unowned.length) gaps.push({ text: `${plural(unowned.length, "requirement")} with no owner`, goto: "compliance", el: `req-${unowned[0].id}` });
   const openItems = items.filter((i) => i.status !== "done");
-  if (openItems.length) gaps.push(`${plural(openItems.length, "action item")} open`);
-  const uncheckedMand = rules.filter((r) => r.mandatory && !r.checked);
-  if (uncheckedMand.length) gaps.push(`${plural(uncheckedMand.length, "mandatory rule")} unchecked`);
+  if (openItems.length) gaps.push({ text: `${plural(openItems.length, "action item")} still open`, goto: "plan", el: `action-${openItems[0].id}` });
+  const late = items.filter((i) => i.status !== "done" && daysFromNow(i.due) < 0);
+  if (late.length) gaps.push({ text: `${plural(late.length, "item")} past due`, goto: "plan", el: `action-${late[0].id}` });
+  const unanswered = arr(pack.questions).filter((q) => !has(q.answer));
+  if (unanswered.length) gaps.push({ text: `${plural(unanswered.length, "question")} unanswered by the client`, goto: "questions", el: `question-${unanswered[0].id}` });
 
   const worst = inputs.slice().sort((a, b) => a.value - b.value)[0];
-  return { ok: true, value, inputs, gaps, capped, biggestDrag: gaps[0] || `lowest input: ${worst.key.toLowerCase()}` };
+  return { ok: true, value, inputs, gaps, capped: false,
+    biggestDrag: gaps[0] ? gaps[0].text : `lowest input: ${worst.key.toLowerCase()}` };
 }
 
 function deriveCriticalPath(pack) {
@@ -200,13 +200,13 @@ function deriveCoverage(pack) {
    through ALIASES in show(). A tidier id set is not worth a dead link. */
 const SECTIONS = [
   { id: "snapshot",     label: "TLDR",                 render: secScope },
-  { id: "plan",         label: "Plan",                 render: secPlan,
+  { id: "plan",         label: "Readiness",            render: secPlan,
     when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
     count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
-  { id: "compliance",   label: "Compliance",           render: secCompliance,
+  { id: "compliance",   label: "Rules & Requirements", render: secCompliance,
     when: (p) => has(p.rules) || has(p.requirements),
     count: (p) => (arr(p.rules).length + arr(p.requirements).length) || null },
-  { id: "evaluation",   label: "Scorecard",            render: secEvaluation,   when: (p) => has(p.scorecard) || has(p.evaluation) },
+  { id: "evaluation",   label: "Evaluation Scorecard", render: secEvaluation,   when: (p) => has(p.scorecard) || has(p.evaluation) },
   { id: "team",         label: "Team & Burden",        render: secTeam,         when: (p) => has(p.team) || has(p.roster) },
   { id: "questions",    label: "Questions",            render: secQuestions,    when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
   { id: "risks",        label: "Risks & Signals",      render: secRisks,        when: (p) => has(p.risks) || has(p.signals) },
@@ -371,7 +371,6 @@ function tileReadiness(r) {
   return `<div class="rb-card rb-tile">
     <div class="rb-tile-label">Response readiness</div>
     <div class="rb-metric-num">${pct(r.value)}<small>%</small></div>
-    <div class="rb-metric-note">${esc(r.biggestDrag)}</div>
     <div class="rb-bar"><i style="width:${pct(r.value)}%"></i></div>
     <details class="rb-expand"><summary>How this is computed</summary>
       <div class="rb-expand-body">
@@ -381,9 +380,7 @@ function tileReadiness(r) {
             <span></span><span></span>
             <b class="rb-meta r" style="color:var(--rb-ink);font-size:13px">${pct(i.value)}%</b>
           </div></li>`).join("")}</ul>
-        <div class="rb-formula">readiness = mean(${r.inputs.map((i) => pct(i.value) + "%").join(", ")})${
-          r.capped ? " → capped at 90%: a mandatory rule is unchecked" : ""}</div>
-        ${r.gaps.length ? `<p class="rb-small rb-muted" style="margin-top:10px">Gaps: ${esc(r.gaps.join(" · "))}</p>` : ""}
+        <div class="rb-formula">readiness = mean(${r.inputs.map((i) => pct(i.value) + "%").join(", ")})</div>
       </div>
     </details>
   </div>`;
@@ -615,29 +612,42 @@ function secPlan(p, d, ctx) {
   const items = arr(p.actionItems);
   const dates = secDates(p, d, ctx, { bare: true });
   const timelineOpen = !items.length;
-  return head("Plan") +
+  const r = d.readiness;
+
+  /* The number, then the reason the number is not 100. A percentage with no
+     stated cause is a score; a percentage with its blockers under it is a
+     to-do list. Each blocker is a link into the exact row. */
+  const blockers = r.ok && r.gaps.length
+    ? `<ul class="rb-blockers">${r.gaps.map((g) => `
+        <li><a href="${goHref(g.goto)}" data-goto="${g.goto}"${g.el ? ` data-el="${esc(g.el)}"` : ""}>${esc(g.text)}</a></li>`).join("")}</ul>`
+    : r.ok
+    ? `<p class="rb-small rb-muted" style="margin-top:10px">Nothing outstanding — every requirement is owned, every item is closed, and the client has answered.</p>`
+    : "";
+
+  return head("Readiness") +
     `<div class="rb-zone rb-pulse" style="margin-top:0">
        ${tileReadiness(d.readiness)}
        ${tileCountdown(d.criticalPath)}
      </div>` +
-    `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
-       <summary><span class="rb-caret" aria-hidden="true"></span>Key dates</summary>
-       <div class="rb-fold-body">${dates}</div>
-     </details>` +
+    blockers +
     /* No "who's carrying what" grid. It arrived as the honest home for owner
        load and earned its place on paper, but on a real pursuit it is a matrix
        of ones and zeroes that tells you less than the checklist directly above
        it — which is already grouped by owner and counts itself. The heatmap()
        function is kept: it is the right instrument once themes are populated
        enough to have a shape, and Team is where it will land if it returns. */
-    secChecklist(p, d, ctx);
+    secChecklist(p, d, ctx) +
+    `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
+       <summary><span class="rb-caret" aria-hidden="true"></span>Key dates</summary>
+       <div class="rb-fold-body">${dates}</div>
+     </details>`;
 }
 
 /* Compliance: submission rules plus client requirements. Asked to describe the
    difference between the two as separate tabs, readers could not: "are they the
    same thing? Are we looking at two different things here?" */
 function secCompliance(p, d, ctx) {
-  return head("Compliance") +
+  return head("Rules & Requirements") +
     secRules(p, d, ctx) + secRequirements(p, d, ctx);
 }
 
@@ -756,18 +766,13 @@ function secDates(p, d, ctx, opts = {}) {
 function secRules(p, d, ctx) {
   const rules = arr(p.rules);
   if (!rules.length) return "";
-  const done = rules.filter((r) => r.checked).length;
-  return subhead("Submission rules") +
-    `<p class="rb-small rb-muted">${done} of ${rules.length} confirmed.</p>
-     <ul class="rb-rows">${rules.map((r) => `
-      <li data-el="rule-${esc(r.id)}"><div class="rb-row" style="--rb-c1:0px;--rb-c2:88px;--rb-c3:150px">
-        ${ctx.edit
-          ? `<input class="rb-check" type="checkbox" data-edit="checked" data-coll="rules"
-                    data-id="${esc(r.id)}"${r.checked ? " checked" : ""} aria-label="${esc(r.label)}">`
-          : `<span class="rb-id">${tick(ctx, "rules", r.id, !!r.checked, r.label, "checked")}</span>`}
-        <span${edIn(ctx, `rules[id=${r.id}].label`, "rb-row-text " + (r.checked ? "rb-muted" : ""))}>${esc(r.label)}</span>
+  return subhead("To bid at all, we must obey this",
+    `${plural(rules.length, "rule")} governing the submission — miss one and the bid is discarded unread`) +
+    `<ul class="rb-rows">${rules.map((r) => `
+      <li data-el="rule-${esc(r.id)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:170px">
+        <span${edIn(ctx, `rules[id=${r.id}].label`, "rb-row-text")}>${esc(r.label)}</span>
         <span></span>
-        <span class="rb-meta r">${r.mandatory ? `<span class="rb-chip rb-chip-mand">mandatory</span>` : ""}</span>
+        <span></span>
         <span class="rb-meta r">${ctx.edit ? delBtn(ctx, "rules", r.id) : srcLink(r.source, ctx)}</span>
       </div></li>`).join("")}</ul>` + addBtn(ctx, "rules", "Add a rule");
 }
@@ -799,7 +804,7 @@ function secEvaluation(p, d, ctx) {
   return head("Scorecard", mechanic) +
     (crit.length
       ? `<ul class="rb-weights">${crit.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0)).map((c) => `
-          <li><span>${esc(c.name)}${c.mandatory ? ' <span class="rb-chip rb-chip-mand">gate</span>' : ""}</span>
+          <li><span>${esc(c.name)}</span>
             <span class="rb-weight-bar"><i style="width:${((c.weight || 0) / max) * 100}%"></i></span>
             <span class="rb-weight-num">${esc(c.weight)}%</span></li>`).join("")}</ul>`
       : `<p class="rb-empty">No scoring weights stated.</p>`) +
@@ -823,16 +828,11 @@ function secRequirements(p, d, ctx) {
   if (!reqs.length) return "";
   const themes = [...new Set(reqs.map((r) => r.theme || "Ungrouped"))];
 
-  /* If EVERY requirement is mandatory the chip carries no information and reads
-     as alarm — "everything is a must… it's making me feel worried". State it
-     once in the subheading and drop the per-row chips. */
-  const allMust = reqs.every((r) => r.mandatory);
-
   const rowFor = (r) => ({
     status: rowStatus(r, { mandatoryMatters: true }),
     owner: r.owner || "",
     el: `req-${r.id}`,
-    html: `<div class="rb-row" style="--rb-c1:70px;--rb-c2:78px;--rb-c3:104px">
+    html: `<div class="rb-row" style="--rb-c1:104px;--rb-c2:104px;--rb-c3:0px">
         <span class="rb-id">${tick(ctx, "requirements", r.id, r.status === "done", r.text)}${esc(r.id)}</span>
         <span class="rb-row-text">${ctx.edit
           ? `<span${ed(ctx, `requirements[id=${r.id}].text`)}>${esc(r.text)}</span>`
@@ -843,7 +843,6 @@ function secRequirements(p, d, ctx) {
                  <p class="rb-src" style="margin-top:8px">${srcLink(r.source, ctx)}</p>
                </div></details>`
           : esc(r.text)}</span>
-        <span class="rb-meta r">${!allMust && r.mandatory ? `<span class="rb-chip rb-chip-mand">must</span>` : ""}</span>
         <span class="rb-meta r">${ctx.edit
           ? ownerSelect(ctx, r.id, "requirements", r.owner)
           : esc(r.owner || "unowned")}</span>
@@ -853,28 +852,50 @@ function secRequirements(p, d, ctx) {
       </div>`,
   });
 
-  return subhead("Client requirements",
-    `${plural(reqs.length, "requirement")}${allMust ? ", all mandatory" : ""}`) +
-    (d.coverage.ok ? `<div class="rb-card" style="padding:18px 20px">${matrix(d.coverage)}</div>` : "") +
+  return subhead("If we win, we deliver this",
+    `${plural(reqs.length, "requirement")} — the scope we are committing to`) +
     themes.map((th) => listBlock(ctx, `req:${th}`, th,
       reqs.filter((r) => (r.theme || "Ungrouped") === th).map(rowFor),
       { unit: "requirement" })).join("");
 }
 
+const COMPETENCIES = [
+  "Data Collection & Benchmarking",
+  "UX Research",
+  "Product Design",
+  "Development & Engineering",
+  "Annotation & Model Training",
+  "Strategy & Transformation",
+  "Cloud & Platform Engineering",
+  "Data, Analytics & AI",
+  "Quality & Test Automation",
+  "DevSecOps & Service Management",
+];
+const compKey = (n) => String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+const COMP_INDEX = new Map(COMPETENCIES.map((n, i) => [compKey(n), i]));
+const compRank = (n) => (COMP_INDEX.has(compKey(n)) ? COMP_INDEX.get(compKey(n)) : 99);
+const offMenu = (n) => !COMP_INDEX.has(compKey(n));
+
 /* ---------- 8. Team & Burden ---------- */
-function secTeam(p, d) {
+function secTeam(p, d, ctx) {
   const t = p.team || {};
-  const comps = arr(t.competencies);
-  /* HOURS, not fractional FTE. "What's 0.3 of a full-time employee? It's tough
-     to easily think about how much work that actually equates to" — and in a
-     staffing company FTE reads as permanent headcount, not effort. Hours lead;
-     the FTE figure follows as secondary text where the pack still carries it. */
+  /* HOURS ONLY. FTE is gone from this view, not de-emphasised: "I do not
+     understand the function of 0.5 FTE — is it suggesting a headcount?" In a
+     staffing company a fractional FTE reads as permanent headcount to hire, and
+     the number was never that. It was always effort. `fte` is still accepted in
+     the pack and is no longer rendered anywhere. */
+  const comps = arr(t.competencies).slice()
+    .sort((a, b) => compRank(a.name) - compRank(b.name) || String(a.name).localeCompare(String(b.name)));
   const hoursOf = (c) => (Number(c.hours) || 0);
+  const aiOf = (c) => (Number(c.hoursAi) || 0);
   const totalHours = comps.reduce((s, c) => s + hoursOf(c), 0);
-  const totalFte = comps.reduce((s, c) => s + (Number(c.fte) || 0), 0);
-  const effortOf = (c) => hoursOf(c)
-    ? `${hoursOf(c).toLocaleString()} hrs`
-    : (Number(c.fte) ? `${c.fte} FTE` : "\u2014");
+  const totalAi = comps.reduce((s, c) => s + (aiOf(c) || hoursOf(c)), 0);
+  /* The toggle is offered only when the pack carries a second estimate. A saving
+     the analysis did not calculate is not a saving, and inventing an uplift
+     factor here would put a made-up number next to a real one. */
+  const hasAi = comps.some((c) => aiOf(c) > 0);
+  const saving = totalHours && hasAi ? Math.round((1 - totalAi / totalHours) * 100) : 0;
+  const hrs = (n) => (n ? `${n.toLocaleString()} hrs` : "\u2014");
   const DIST = { front: "front-loaded", back: "back-loaded", even: "spread evenly" };
   return head("Team & burden", "To deliver, not to respond. DRAFT.") +
     (arr(p.roster).length
@@ -885,16 +906,27 @@ function secTeam(p, d) {
              <span class="rb-meta r">${esc(r.role || "")}</span></div></li>`).join("")}</ul></div>` : "")
     +
     (comps.length
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Competencies the RFP demands</span>
-           <span class="rb-nav-count">${totalHours
-             ? `${totalHours.toLocaleString()} hrs draft`
-             : `${totalFte.toFixed(1)} FTE draft`}${
-             has(t.distribution) ? ` \u00b7 ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span></div>
+      ? `<div class="rb-group rb-effort" data-basis="${hasAi ? "ai" : "analog"}">
+           <div class="rb-group-head"><span>Competencies the RFP demands</span>
+             <span class="rb-nav-count"><span class="rb-e-analog">${hrs(totalHours)}</span><span class="rb-e-ai">${
+               hrs(totalAi)}</span> draft${
+               has(t.distribution) ? ` \u00b7 ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span></div>
+           ${hasAi
+             ? `<div class="rb-chips" role="group" aria-label="Estimate basis">
+                  <button type="button" class="rb-chip-f" data-basis="ai" aria-pressed="true">AI-assisted<span class="rb-chip-n">${
+                    hrs(totalAi)}</span></button>
+                  <button type="button" class="rb-chip-f" data-basis="analog" aria-pressed="false">Analog<span class="rb-chip-n">${
+                    hrs(totalHours)}</span></button>
+                  ${saving > 0 ? `<span class="rb-e-saving">${saving}% less with AI in the delivery model</span>` : ""}
+                </div>`
+             : ""}
          <ul class="rb-rows">${comps.map((c) => `
-           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:180px;--rb-c3:70px">
-             <span class="rb-row-text">${esc(c.name)}</span><span></span>
+           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:180px;--rb-c3:88px">
+             <span class="rb-row-text">${esc(c.name)}${
+               offMenu(c.name) ? ` <span class="rb-src">outside our ten areas of expertise</span>` : ""}</span><span></span>
              <span class="rb-meta r">${arr(c.requirementIds).length ? esc(c.requirementIds.join(", ")) : ""}</span>
-             <b class="rb-meta r" style="color:var(--rb-ink)">${esc(effortOf(c))}</b></div></li>`).join("")}</ul></div>`
+             <b class="rb-meta r" style="color:var(--rb-ink)"><span class="rb-e-analog">${
+               hrs(hoursOf(c))}</span><span class="rb-e-ai">${hrs(aiOf(c) || hoursOf(c))}</span></b></div></li>`).join("")}</ul></div>`
       : `<p class="rb-empty">No competency breakdown.</p>`)
     +
     (arr(t.keyPersonnel).length
@@ -1431,6 +1463,16 @@ export function renderBrief(pack, mount, opts = {}) {
         .filter((li) => getComputedStyle(li).display !== "none").length;
       const empty = wrap.querySelector(".rb-filter-empty");
       if (empty) empty.hidden = vis > 0;
+      return;
+    }
+    const basis = e.target.closest("[data-basis]");
+    if (basis && basis.tagName === "BUTTON") {
+      e.preventDefault();
+      const box = basis.closest(".rb-effort");
+      if (!box) return;
+      box.dataset.basis = basis.dataset.basis;
+      basis.parentElement.querySelectorAll("[data-basis]").forEach((btn) =>
+        btn.setAttribute("aria-pressed", String(btn === basis)));
       return;
     }
     const col = e.target.closest("[data-lcollapse]");

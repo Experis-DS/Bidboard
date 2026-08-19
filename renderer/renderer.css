@@ -824,16 +824,22 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 details[open] > summary .rb-caret { transform: rotate(90deg); }
 
 .rb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
-.rb-chip-f {
+/* Scoped `.rb .rb-chip-f`, not `.rb-chip-f`. The reset at the top of this file
+   is `.rb button { border: 0 }` — specificity (0,1,1) — so a bare class selector
+   loses and every filter chip in the brief rendered as bare text with no pill.
+   The buttons block further down carries the same note for the same reason. */
+.rb .rb-chip-f {
   all: unset; cursor: pointer; font: inherit; font-size: 12px; line-height: 1;
   display: inline-flex; align-items: center; gap: 5px;
   padding: 5px 9px; border-radius: 999px;
-  border: 1px solid var(--rb-rule); color: var(--rb-gray-2);
+  border: 1px solid var(--rb-line); color: var(--rb-gray-2);
+  background: var(--rb-bg);
 }
-.rb-chip-f:hover { border-color: var(--rb-gray-2); color: var(--rb-ink); }
-.rb-chip-f:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
-.rb-chip-f[aria-pressed="true"] {
+.rb .rb-chip-f:hover { border-color: var(--rb-gray-2); color: var(--rb-ink); }
+.rb .rb-chip-f:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+.rb .rb-chip-f[aria-pressed="true"] {
   border-color: var(--rb-accent); color: var(--rb-accent); font-weight: 600;
+  background: var(--rb-accent-soft);
 }
 .rb-chip-n { font-variant-numeric: tabular-nums; opacity: .7; }
 .rb-chip-f[aria-pressed="true"] .rb-chip-n { opacity: 1; }
@@ -858,7 +864,7 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
 
 /* Folded blocks — The Ask inside Scope, the timeline inside Plan, the why
    behind a risk. */
-.rb-fold { margin-top: var(--rb-s5); border-top: 1px solid var(--rb-rule); padding-top: 10px; }
+.rb-fold { margin-top: var(--rb-s5); border-top: 1px solid var(--rb-line); padding-top: 10px; }
 .rb-fold > summary,
 .rb-risk-more > summary {
   cursor: pointer; list-style: none; font-size: 13px; font-weight: 600;
@@ -883,7 +889,7 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
 
 /* Documents sits outside the eight — it is a launcher, not one of the sections,
    so it is separated at the foot of the nav rather than counted among them. */
-.rb-nav-chrome { margin-top: auto; border-top: 1px solid var(--rb-rule); padding-top: 10px !important; }
+.rb-nav-chrome { margin-top: auto; border-top: 1px solid var(--rb-line); padding-top: 10px !important; }
 .rb-nav-chrome span:first-child { color: var(--rb-gray-2); }
 .rb-nav-chrome:hover span:first-child { color: var(--rb-ink); }
 
@@ -965,3 +971,28 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
    optical line — a flex box takes its baseline from the checkbox otherwise, which
    drags the id down two pixels on every row that has one. */
 .rb-row .rb-id { display: flex; align-items: center; align-self: center; white-space: nowrap; }
+
+/* ---- readiness blockers ---- */
+/* The reason the number is not 100, directly under the number. Not chips and not
+   a card: a short list of links, each landing on the row that has to change. */
+.rb-blockers { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: var(--rb-s3) 0 var(--rb-s5); }
+.rb-blockers > li { position: relative; padding-left: 13px; font-size: var(--rb-t-small); }
+.rb-blockers > li::before {
+  content: ""; position: absolute; left: 0; top: 6px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--rb-urgent);
+}
+.rb-blockers a { color: var(--rb-ink-2); text-decoration: none; border-bottom: 1px solid var(--rb-line); }
+.rb-blockers a:hover { color: var(--rb-accent); border-bottom-color: var(--rb-accent); }
+
+/* ---- effort basis toggle: AI-assisted vs analog ---- */
+/* Two numbers are rendered per row and the toggle flips which is visible. Same
+   discipline as every other filter here: a CSS state change, never a re-render,
+   so nothing in edit mode loses focus and live sync has nothing to fight. */
+.rb-effort .rb-e-ai,
+.rb-effort[data-basis="analog"] .rb-e-analog { display: inline; }
+.rb-effort .rb-e-analog,
+.rb-effort[data-basis="analog"] .rb-e-ai { display: none; }
+.rb-e-saving {
+  align-self: center; margin-left: 4px;
+  font-size: var(--rb-t-small); color: var(--rb-accent);
+}
