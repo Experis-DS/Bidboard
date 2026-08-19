@@ -189,7 +189,7 @@ const SECTIONS = [
   { id: "ask",          label: "The Ask",              render: secAsk,          when: (p) => has(p.ask) },
   { id: "dates",        label: "Key Dates",            render: secDates,        when: (p) => has(p.dates) || has(p.submission), count: (p) => arr(p.dates).length || null },
   { id: "rules",        label: "Rules & Constraints",  render: secRules,        when: (p) => has(p.rules), count: (p) => arr(p.rules).length || null },
-  { id: "evaluation",   label: "Evaluation",           render: secEvaluation,   when: (p) => has(p.evaluation) },
+  { id: "evaluation",   label: "Scorecard",            render: secEvaluation,   when: (p) => has(p.scorecard) || has(p.evaluation) },
   { id: "requirements", label: "Requirements",         render: secRequirements, when: (p) => has(p.requirements), count: (p) => arr(p.requirements).length || null },
   { id: "team",         label: "Team & Burden",        render: secTeam,         when: (p) => has(p.team) || has(p.roster) },
   { id: "questions",    label: "Questions for Client", render: secQuestions,    when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
@@ -558,25 +558,49 @@ function secRules(p, d, ctx) {
       </div></li>`).join("")}</ul>` + addBtn(ctx, "rules", "Add a rule");
 }
 
-/* ---------- 6. Evaluation ---------- */
+/* ---------- 6. Scorecard ---------- */
+/* Renamed from "Evaluation" on user evidence, not taste: "evaluation could mean
+   a lot of things, but if I think scorecard, I know exactly what this means."
+   Three participants across two sessions reached for the same word — and in a
+   staffing company "evaluation" collides with supplier scorecards and QBRs, so
+   people read it as how the client rates US on an existing contract.
+
+   The section id stays "evaluation" so links like #/b/x/evaluation keep working.
+   Both field shapes are read: schema v4 renames evaluation -> scorecard and
+   gates -> successCriteria, but a pack cached in IndexedDB before this deploy is
+   still stored at v3, so falling back costs one ?? and removes a whole class of
+   "my brief went blank after the update". */
 function secEvaluation(p, d, ctx) {
-  const e = p.evaluation || {};
-  const crit = arr(e.criteria);
+  const e = p.scorecard || p.evaluation || {};
+  const criteriaOf = arr(e.criteria);
+  const crit = criteriaOf;
+  const success = arr(e.successCriteria).length ? arr(e.successCriteria) : arr(e.gates);
   const max = Math.max(1, ...crit.map((c) => Number(c.weight) || 0));
-  return head("Evaluation", "How they score it — and therefore where effort pays.") +
+  const total = crit.reduce((n, c) => n + (Number(c.weight) || 0), 0);
+  /* The subtitle is the specific thing that made this legible in testing: the
+     scoring mechanic stated immediately under the heading, before the bars. */
+  const mechanic = crit.length
+    ? `Scored out of ${total || 100}. Heaviest weight: ${esc(crit.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0))[0].name)}.`
+    : "How they score it — and therefore where effort pays.";
+  return head("Scorecard", mechanic) +
     (crit.length
       ? `<ul class="rb-weights">${crit.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0)).map((c) => `
           <li><span>${esc(c.name)}${c.mandatory ? ' <span class="rb-chip rb-chip-mand">gate</span>' : ""}</span>
             <span class="rb-weight-bar"><i style="width:${((c.weight || 0) / max) * 100}%"></i></span>
             <span class="rb-weight-num">${esc(c.weight)}%</span></li>`).join("")}</ul>`
       : `<p class="rb-empty">No scoring weights stated in the documents.</p>`) +
-    (arr(e.gates).length
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Pass / fail gates</span><span class="rb-nav-count">${e.gates.length}</span></div>
-         <ul class="rb-rows">${e.gates.map((g) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
-           <span class="rb-row-text">${esc(g)}</span><span></span><span></span><span></span></div></li>`).join("")}</ul></div>` : "") +
+    /* Was "Pass / fail gates" — a misleading name over mis-modelled content.
+       Nobody could relate it to the weights beside it ("what percentage means
+       that I fail?") because these are not thresholds: they are stated
+       must-haves and explicit rule-outs, often said aloud at kickoff rather
+       than written in the RFP. */
+    (success.length
+      ? `<div class="rb-group"><div class="rb-group-head"><span>Criteria for success</span><span class="rb-nav-count">${success.length}</span></div>
+         <ul class="rb-rows">${success.map((g) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
+           <span class="rb-row-text">${esc(typeof g === "string" ? g : (g.text || g.basis || ""))}</span><span></span><span></span><span></span></div></li>`).join("")}</ul></div>` : "") +
     (has(e.guidance)
       ? `<div class="rb-verdict" style="margin-top:var(--rb-s4)"><p><b>Where to over-invest</b><span${
-          ed(ctx, "evaluation.guidance")}>${esc(e.guidance)}</span></p></div>` : "");
+          ed(ctx, p.scorecard ? "scorecard.guidance" : "evaluation.guidance")}>${esc(e.guidance)}</span></p></div>` : "");
 }
 
 /* ---------- 7. Requirements ---------- */
@@ -924,7 +948,10 @@ function secRisks(p, d, ctx) {
     `<div class="rb-signals">
       ${group("Working against us", s.red, "red")}
       ${group("Working for us", s.green, "green")}
-      ${group("Soft signals", s.beige, "beige")}
+      ${/* "beige" tested badly — nobody could guess what it meant or which
+            direction it pointed. Renamed to soft signals in schema v4; the old
+            key is still read for packs cached before this deploy. */""}
+      ${group("Soft signals — read between the lines, not stated", s.soft || s.beige, "beige")}
       ${arr(s.unknown).length ? `<p class="rb-small rb-muted">Still unknown: ${esc(s.unknown.join(", "))} — recorded as unknown rather than guessed.</p>` : ""}
     </div>` +
     (risks.length

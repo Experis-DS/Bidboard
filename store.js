@@ -20,6 +20,8 @@
    the better failure mode. See reference/data-model.md.
    ============================================================ */
 
+import { migrate } from "./schema.js";
+
 const SDK = "https://www.gstatic.com/firebasejs/10.12.2";
 const DB_NAME = "bid-board";
 const DB_VER = 2;   // v2 adds the checkpoints store
@@ -161,11 +163,12 @@ export async function getPackBase(briefId) {
   if (store.mode === "shared" && navigator.onLine && idx.packChunks) {
     try {
       const pack = await readChunkedPack(briefId, idx.packChunks);
-      await idbPut("packs", pack, briefId);
-      return pack;
+      await idbPut("packs", pack, briefId);   // cache the pack AS STORED, not as migrated
+      return migrate(pack);
     } catch (e) { console.warn("Pack fetch failed — using cache.", e); }
   }
-  return (await idbGet("packs", briefId)) || null;
+  const cached = await idbGet("packs", briefId);
+  return cached ? migrate(cached) : null;
 }
 
 export async function getElements(briefId) {
