@@ -300,7 +300,9 @@ function card(p) {
      and whether anyone owns it. */
   const bits = [];
   if (typeof c.openItems === "number") {
-    bits.push(c.openItems ? `${plural(c.openItems, "open item")}` : "nothing outstanding");
+    bits.push(c.openItems
+      ? `${c.openItems} open item${c.openItems === 1 ? "" : "s"}`
+      : "nothing outstanding");
   }
   if (c.unassigned) bits.push(`<b class="card-warn">${c.unassigned} unassigned</b>`);
   if (c.atRisk) bits.push(`<b class="card-warn">${c.atRisk} at risk</b>`);
