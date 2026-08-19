@@ -1,6 +1,6 @@
 {
   "hubName": "Bid Board",
-  "hubVersion": "1.4.0",
+  "hubVersion": "1.5.0",
   "baseUrl": "https://experis-ds.github.io/Bidboard/",
   "owner": "Experis-DS",
   "ownerPassword": "experis",
@@ -8,6 +8,7 @@
     "measurementId": "",
     "note": "GA4 measurement ID, format G-XXXXXXXXXX. Leave empty and no Google script loads at all."
   },
-  "notes": "baseUrl is the URL pasted into the /RFP skill as BRIEF_SITE_URL. hubVersion is the only version stamp the site has and it is what the header pill shows — bump it with ./ship.sh, never by hand. ownerPassword gates the Site owner skills on the Skills page: cosmetic friction, not security, since the .skill files sit at static URLs.",
-  "createdAt": "2026-08-06T19:10:44.648Z"
+  "notes": "baseUrl is the URL pasted into the /RFP skill as BRIEF_SITE_URL. hubVersion is the only version stamp the site has and it is what the header pill shows — bump it with ./ship.sh, never by hand. ownerPassword gates the Site owner skills on the Skills page: cosmetic friction, not security, since the .skill files sit at static URLs. carryDocuments:true uploads bundled source documents so the Document Map works on every machine; set it false to keep them in the importer's browser only.",
+  "createdAt": "2026-08-06T19:10:44.648Z",
+  "carryDocuments": true
 }

@@ -4,7 +4,7 @@
    The shell finds a pursuit. The renderer draws it. No overlap.
    ============================================================ */
 
-import { initStore, store, listPursuits, getPack, getPackBase, applyOverrides, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement, subscribeBrief, subscribePursuits } from "./store.js";
+import { initStore, store, listPursuits, getPack, getPackBase, applyOverrides, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getAssetBytesLocal, ASSET_MAX_BYTES, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement, subscribeBrief, subscribePursuits } from "./store.js";
 import { validate, askLine, CURRENT_SCHEMA, MIN_SCHEMA } from "./schema.js";
 import { unzip, asJson } from "./unzip.js";
 import { renderBrief, derive, RENDERER_VERSION } from "./renderer/renderer.js";
@@ -241,7 +241,7 @@ function paintLibrary() {
     </div>
     <div class="filters">
       ${["all", "open", "soon", "closed"].map((f) => `
-        <button class="chip" data-filter="${f}" aria-pressed="${view.filter === f}"
+        <button class="chip" data-libfilter="${f}" aria-pressed="${view.filter === f}"
           ${counts(f) ? "" : "disabled"}>${
           { all: "All", open: "Open", soon: "Due this week", closed: "Closed" }[f]
         }<b>${counts(f)}</b></button>`).join("")}
@@ -258,9 +258,9 @@ function paintLibrary() {
 
   paintCards();
 
-  screen.addEventListener("click", (e) => {
-    const c = e.target.closest("[data-filter]");
-    if (c) { view.filter = c.dataset.filter; paintLibrary(); }
+  screen.querySelector(".filters").addEventListener("click", (e) => {
+    const c = e.target.closest("[data-libfilter]");
+    if (c) { view.filter = c.dataset.libfilter; paintLibrary(); }
   });
   $("#q").addEventListener("input", (e) => { view.q = e.target.value; paintCards(); });
   $("#sort").addEventListener("change", (e) => { view.sort = e.target.value; paintCards(); });
@@ -459,7 +459,10 @@ function importReview() {
         ${s.counts.questions} questions · ${s.counts.documents} documents</dd>
       <dt>Built by /RFP</dt><dd>${s.generatedAt ? esc(fmtDate(s.generatedAt)) : "<span class='muted'>unknown</span>"}</dd>
       ${staged.migratedFrom ? `<dt>Schema</dt><dd>migrated from v${staged.migratedFrom} to v${CURRENT_SCHEMA}</dd>` : ""}
-      ${staged.assets.size ? `<dt>Files</dt><dd>${staged.assets.size} attached</dd>` : ""}
+      ${staged.assets.size ? `<dt>Files</dt><dd>${staged.assets.size} attached${
+        CONFIG.carryDocuments === false ? " — kept in this browser only" : " — carried by the site"}${
+        [...staged.assets.values()].some((b) => b.byteLength > ASSET_MAX_BYTES)
+          ? `<br><span class="muted small">Anything over ${Math.round(ASSET_MAX_BYTES / 1048576)} MB stays local — too large for a Firestore document set.</span>` : ""}</dd>` : ""}
     </dl>
     ${up ? `<div class="notice" style="margin-top:16px">
       Edits the team has made here since the last import are kept — they layer on top of the
@@ -513,7 +516,7 @@ async function doImport() {
   });
 
   try {
-    await putPursuit({ index, pack, assets });
+    await putPursuit({ index, pack, assets, carryDocuments: CONFIG.carryDocuments !== false });
     track("pursuit_import", { schema_version: pack.schemaVersion, requirements: (pack.requirements || []).length });
     await appendActivity(s.briefId, { kind: "import", editor: who, section: "—", after: `${staged.fileName} (schema v${CURRENT_SCHEMA})` });
     LIBRARY = await listPursuits();
@@ -558,6 +561,9 @@ async function screenBrief(briefId, section) {
 
   // Pre-resolve hosted asset URLs so the renderer stays synchronous.
   const urls = await resolveAssetUrls(idx, pack);
+  /* What the site is carrying for this pursuit. Recorded on the index doc at
+     import, so knowing whether a file is available costs no extra read. */
+  const carried = new Set(idx.filesCarried || []);
 
   screen.innerHTML = `<div id="brief"></div>`;
   BRIEF = { briefId, idx, pack, base: await getPackBase(briefId), api: null, editing: false, unsub: null, pendingRemote: null };
@@ -585,9 +591,10 @@ async function screenBrief(briefId, section) {
     },
     onEdit: applyEdit,
     resolveDoc: (doc, page) => {
-      if (!doc || doc.unreadable) return null;
+      if (!doc || doc.unreadable || !doc.href) return null;
       const u = urls[doc.href];
-      return u ? u + (page && String(doc.type).toLowerCase() === "pdf" ? `#page=${page}` : "") : null;
+      if (u) return u + (page && String(doc.type).toLowerCase() === "pdf" ? `#page=${page}` : "");
+      return carried.has(doc.href) ? FETCH_PREFIX + encodeURIComponent(doc.href) : null;
     },
   };
   BRIEF.opts = opts;
@@ -595,6 +602,35 @@ async function screenBrief(briefId, section) {
 
   bindBriefBar(briefId, idx, pack, BRIEF.api);
   refreshActivityCount();
+
+  /* Fetch-on-click for a document the site carries but this browser has not
+     seen. Capture phase, because the renderer's own [data-doc] handling sits on
+     the same click and this has to win: the href is a sentinel, and letting it
+     through would put "#fetch/..." in the address bar. */
+  $("#brief").addEventListener("click", async (e) => {
+    const a = e.target.closest(`a[href^="${FETCH_PREFIX}"]`);
+    if (!a) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const href = decodeURIComponent(a.getAttribute("href").slice(FETCH_PREFIX.length));
+    const doc = (pack.documents || []).find((x) => x.href === href);
+    const label = a.textContent;
+    a.textContent = "fetching…";
+    a.setAttribute("aria-busy", "true");
+    const url = await fetchDocument(briefId, href, urls, doc || {});
+    a.removeAttribute("aria-busy");
+    a.textContent = label;
+    if (!url) { alert("That file is not on the board.\n\nIt was either too large to attach at import, or the import did not finish. Re-import the bundle to attach it."); return; }
+    // Re-render so every link to this document becomes a real one, then hand
+    // the file over. A download rather than a new tab: the click that would
+    // have opened the tab is several awaits behind us and popup blockers count
+    // that as unsolicited.
+    if (BRIEF && BRIEF.briefId === briefId) BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
+    const t = document.createElement("a");
+    t.href = url;
+    t.download = (doc && doc.file) || href.split("/").pop();
+    document.body.appendChild(t); t.click(); t.remove();
+  }, true);
 
   /* LIVE SYNC. Until this existed, another person's edit reached Firestore and
      sat there: this page had already finished reading, so the brief only caught
@@ -663,11 +699,15 @@ const NEW_ITEM = {
   rules:       (p) => ({ id: nextId(p, "rules", "C"), label: "New rule", checked: false, mandatory: false }),
 };
 
+/* Re-render in the mode the reader is ACTUALLY in. This used to hard-code
+   "edit", which was harmless while every edit came from an edit-mode control —
+   and wrong the moment a read-mode checkbox could write, because ticking one box
+   flipped the whole brief into edit mode underneath the person. */
 async function applyEdit(change) {
   // A cancelled "New topic…" prompt: nothing to record, but the select is
   // showing __new and has to be put back.
   if (change.kind === "noop") {
-    if (change.rerender !== false && BRIEF) BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    if (change.rerender !== false && BRIEF) BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
     return;
   }
   const who = editorName();
@@ -701,7 +741,7 @@ async function applyEdit(change) {
       before: from, after: `${to} · ${affected.length} question${affected.length === 1 ? "" : "s"} moved`,
     });
     BRIEF.pack = await getPack(briefId);
-    BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
     refreshActivityCount();
     flashSaved();
     return;
@@ -731,7 +771,7 @@ async function applyEdit(change) {
         section: change.coll, field: "deleted", before: change.itemId, after: "(deleted)",
       });
       BRIEF.pack = await getPack(briefId);
-      BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+      BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
       refreshActivityCount();
       flashSaved();
       return;
@@ -752,7 +792,7 @@ async function applyEdit(change) {
   // rebuild the merged pack from baseline + overrides so derived numbers are honest
   BRIEF.pack = await getPack(briefId);
   if (change.rerender !== false) {
-    BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
     refreshComments();
   }
   refreshActivityCount();
@@ -951,14 +991,31 @@ async function openRestore(briefId) {
    this build. The Storage lookup that used to sit here referenced an SDK that
    is no longer loaded, so it threw on every call and fell through to the cache
    by accident. Now it just reads the cache, and says so when it comes up empty. */
+/* Only what is already on this machine. Resolving remotely here would mean
+   downloading every attached PDF before the brief paints, which on a pursuit
+   with a 30 MB document set is a blank screen for half a minute. The rest
+   resolve on click, once, and are cached from then on. */
 async function resolveAssetUrls(idx, pack) {
   const out = {};
   for (const doc of pack.documents || []) {
     if (!doc.href || doc.unreadable) continue;
-    const bytes = await getAssetBytes(idx.briefId, doc.href);
+    const bytes = await getAssetBytesLocal(idx.briefId, doc.href);
     if (bytes) out[doc.href] = URL.createObjectURL(new Blob([bytes], { type: mimeFor(doc) }));
   }
   return out;
+}
+
+/* A document the site is carrying but this browser has not fetched yet. The
+   href is a sentinel rather than a real URL: the bytes do not exist locally, so
+   there is nothing to point at until somebody asks. */
+const FETCH_PREFIX = "#fetch/";
+
+async function fetchDocument(briefId, href, urls, doc) {
+  if (urls[href]) return urls[href];
+  const bytes = await getAssetBytes(briefId, href);
+  if (!bytes) return null;
+  urls[href] = URL.createObjectURL(new Blob([bytes], { type: mimeFor(doc) }));
+  return urls[href];
 }
 
 /* Without a type, a Blob URL downloads as an unnamed binary and a PDF will not

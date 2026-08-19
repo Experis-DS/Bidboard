@@ -65,6 +65,21 @@ service cloud.firestore {
         allow delete: if open();
       }
 
+      // Document bytes, base64-chunked, because Cloud Storage needs Blaze. Each
+      // slice is 700,000 chars in the client; the ceiling here is the backstop.
+      //
+      // This is the path that puts client RFP documents on an open endpoint. It
+      // is the sharpest edge in this file. Auth in front of the site is what
+      // makes it defensible; until then, treat every attached document as
+      // published to anyone holding the URL.
+      match /files/{chunkId} {
+        allow read: if open();
+        allow create, update: if open()
+          && request.resource.data.keys().hasAll(['name', 'i', 'total'])
+          && request.resource.size() < 950 * 1024;
+        allow delete: if open();
+      }
+
       // Every edit anyone makes. Never written into the pack — that is what
       // keeps re-import non-destructive.
       match /elements/{elementId} {

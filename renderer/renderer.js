@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "1.1.0";
+export const RENDERER_VERSION = "2.1.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -121,14 +121,18 @@ function deriveCriticalPath(pack) {
   const dates = arr(pack.dates).filter((d) => parseDate(d.date));
   if (!sub && !dates.length) return { ok: false, why: "Countdown unavailable — no dates in the pack" };
 
-  const milestones = dates.map((d) => ({ ...d, days: daysFromNow(d.date) }));
-  if (sub) milestones.push({ id: "submission", label: "Submission", date: sub, days: daysFromNow(sub), ourAction: pack.submission.method || "" });
+  const milestones = dates.map((d) => ({ ...d, kind: dateKind(d), days: daysFromNow(d.date) }));
+  if (sub) milestones.push({ id: "submission", label: "Submission", date: sub, days: daysFromNow(sub), kind: "response", ourAction: pack.submission.method || "" });
   milestones.sort((a, b) => a.days - b.days);
 
   const upcoming = milestones.filter((m) => m.days >= 0);
   const late = arr(pack.actionItems).filter((i) => i.status !== "done" && daysFromNow(i.due) < 0);
   const subDays = sub ? daysFromNow(sub) : null;
-  const nearest = upcoming.find((m) => m.id !== "submission");
+  /* "Next" means the next thing WE have to do. A client programme milestone a
+     year out is not a nearer constraint than the submission, and reading it as
+     one is how the countdown tile stopped being trusted. */
+  const nearest = upcoming.find((m) => m.id !== "submission" && m.kind === "response")
+    || upcoming.find((m) => m.id !== "submission");
 
   return { ok: true, subDays, nearest, milestones, late };
 }
@@ -215,7 +219,40 @@ const SECTIONS = [
 ];
 
 /* Old routes keep working. */
+/* Set once per render, before section bodies are built. */
+let BASE_ROUTE = "#";
+const goHref = (id) => (BASE_ROUTE === "#" ? "#" : `${BASE_ROUTE}/${id}`);
+
 const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "plan", rules: "compliance", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
+
+/* ---------- date kinds ----------
+   Two clocks were being drawn on one rail and read as one sequence. A RESPONSE
+   date is something we must hit to stay in the process — questions due,
+   submission, orals, award. A PROGRAM date is something the client has told us
+   about their own world — contract start, go-live, phase gates. Mixed together
+   you get a timeline where "in 4 days" and "in 14 months" share a rail, and the
+   eye reads the far date as slack on the near one.
+
+   So: classify, colour, and show ONE kind at a time by default. The pack may
+   state `kind` outright; where it does not the label decides. Unclassifiable
+   falls to "response", because an unlabelled date on an RFP brief is far more
+   likely to belong to the submission clock than to the client's programme. */
+const PROGRAM_WORDS = /(start|commenc|kick[- ]?off|kickoff|go[- ]?live|golive|launch|transition|onboard|mobilis|mobiliz|ramp|cut[- ]?over|phase|milestone|contract|renewal|expir|implementation|steady state|hand[- ]?over)/i;
+const RESPONSE_WORDS = /(q&a|q ?and ?a|question|clarification|addend|amend|intent|nda|submi|due|proposal|bid|tender|oral|present|demo|shortlist|award|notif|evaluat|interview|registration|portal|deadline|pre[- ]?bid|site visit|conference|response)/i;
+
+const KIND_LABEL = { response: "Response", program: "Program" };
+
+function dateKind(d) {
+  const stated = String((d && d.kind) || "").toLowerCase();
+  if (stated === "program" || stated === "programme") return "program";
+  if (stated === "response" || stated === "procurement") return "response";
+  const t = String((d && d.type) || "").toLowerCase();
+  if (t === "program" || t === "programme" || t === "milestone") return "program";
+  if (t === "qa" || t === "submission" || t === "award" || t === "orals") return "response";
+  const label = `${(d && d.label) || ""} ${(d && d.ourAction) || ""}`;
+  if (RESPONSE_WORDS.test(label)) return "response";
+  return PROGRAM_WORDS.test(label) ? "program" : "response";
+}
 
 /* ---------- 1. Snapshot ---------- */
 
@@ -278,7 +315,7 @@ function secSnapshot(p, d, ctx) {
 
   const outlook = p.signals?.winLikelihood
     ? `<div class="rb-zone rb-outlook">Outlook: <b>${esc(p.signals.winLikelihood)}</b>${
-        summariseSignals(p.signals)} <a href="#" data-goto="risks">Details&nbsp;→</a></div>`
+        summariseSignals(p.signals)} <a href="${goHref("risks")}" data-goto="risks">Details&nbsp;→</a></div>`
     : "";
 
   return `
@@ -367,7 +404,7 @@ function tileCountdown(c) {
       <div class="rb-expand-body">
         <ul class="rb-rows">${c.milestones.map((m) => `
           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:96px;--rb-c3:82px">
-            <span class="rb-row-text">${esc(m.label)}</span><span></span>
+            <span class="rb-row-text"><i class="rb-kdot" data-kind="${m.kind || "response"}"></i>${esc(m.label)}</span><span></span>
             <span class="rb-meta r">${esc(fmtDate(m.date))}</span>
             <span class="rb-meta r ${m.days < 0 ? "is-late" : ""}">${m.days < 0 ? `${Math.abs(m.days)}d ago` : `${m.days}d slack`}</span>
           </div></li>`).join("")}</ul>
@@ -541,6 +578,16 @@ function listBlock(ctx, key, title, rows, opts = {}) {
 
 const statusPill = (s) => `<span class="rb-status" data-s="${s}">${STATUS_LABEL[s]}</span>`;
 
+/* A checkbox that closes a row without entering edit mode. Offered only when the
+   host can actually persist it — in the standalone HTML brief there is nowhere to
+   write, and a checkbox that forgets is worse than no checkbox. */
+function tick(ctx, coll, id, on, label, field) {
+  if (!ctx.canTick || ctx.edit) return "";
+  return `<input class="rb-tick" type="checkbox" data-tick="${coll}" data-id="${esc(id)}"
+    data-tickf="${field || "status"}"${on ? " checked" : ""}
+    aria-label="Mark done: ${esc(String(label || id).slice(0, 60))}">`;
+}
+
 
 /* ---------- composite sections (the 12 -> 8 merge) ---------- */
 
@@ -566,7 +613,7 @@ function secScope(p, d, ctx) {
    screen and making it a dashboard instead of a read-out. */
 function secPlan(p, d, ctx) {
   const items = arr(p.actionItems);
-  const dates = secDates(p, d, ctx);
+  const dates = secDates(p, d, ctx, { bare: true });
   const timelineOpen = !items.length;
   return head("Plan") +
     `<div class="rb-zone rb-pulse" style="margin-top:0">
@@ -575,16 +622,15 @@ function secPlan(p, d, ctx) {
      </div>` +
     `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
        <summary><span class="rb-caret" aria-hidden="true"></span>Key dates</summary>
-       <div class="rb-fold-body">${dates.replace(/^[\s\S]*?<\/h2>\s*(<p class="rb-sub">[\s\S]*?<\/p>)?/, "")}</div>
+       <div class="rb-fold-body">${dates}</div>
      </details>` +
-    secChecklist(p, d, ctx) +
-    /* Was "owner load", which nobody could parse — it read as a person's
-       availability rather than a count of what this pursuit is asking of them.
-       Named for what it actually is, and placed with the checklist it counts. */
-    (d.ownerLoad.ok
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Who's carrying what</span></div>
-           <div style="margin-top:12px">${heatmap(d.ownerLoad)}</div></div>`
-      : "");
+    /* No "who's carrying what" grid. It arrived as the honest home for owner
+       load and earned its place on paper, but on a real pursuit it is a matrix
+       of ones and zeroes that tells you less than the checklist directly above
+       it — which is already grouped by owner and counts itself. The heatmap()
+       function is kept: it is the right instrument once themes are populated
+       enough to have a shape, and Team is where it will land if it returns. */
+    secChecklist(p, d, ctx);
 }
 
 /* Compliance: submission rules plus client requirements. Asked to describe the
@@ -630,10 +676,10 @@ function secChecklist(p, d, ctx) {
                          aria-label="Delete ${esc(i.id)}">×</button>
                </div>`
             : `<div class="rb-row" style="--rb-c1:62px;--rb-c2:104px;--rb-c3:104px">
-                 <span class="rb-id">${esc(i.id || "")}</span>
+                 <span class="rb-id">${tick(ctx, "actionItems", i.id, st === "done", i.task)}${esc(i.id || "")}</span>
                  <span class="rb-row-text ${st === "done" ? "is-done" : ""}">${esc(i.task)}</span>
                  <span class="rb-meta r">${i.requirementId
-                   ? `<a href="#" data-goto="compliance" data-el="req-${esc(i.requirementId)}">${esc(i.requirementId)}</a>` : ""}</span>
+                   ? `<a href="${goHref("compliance")}" data-goto="compliance" data-el="req-${esc(i.requirementId)}">${esc(i.requirementId)}</a>` : ""}</span>
                  <span class="rb-meta r ${late ? "is-late" : ""}">${i.due ? esc(fmtDate(i.due)) + (late ? " · late" : "") : ""}</span>
                  ${statusPill(st)}
                </div>`,
@@ -650,7 +696,7 @@ function secChecklist(p, d, ctx) {
    duplication this restructure removed. */
 
 /* ---------- 4. Key Dates ---------- */
-function secDates(p, d) {
+function secDates(p, d, ctx, opts = {}) {
   /* The six-step stage stepper was REMOVED, not restyled.
      It only ever moved when a human remembered to move it, and a pursuit
      showing "Drafting" three weeks after it was submitted is worse than showing
@@ -658,18 +704,52 @@ function secDates(p, d) {
      from dates in the documents instead, so it cannot rot. The one thing the
      stepper was genuinely good for — "where are we today" — is the TODAY marker
      and the muted past dates below. */
+  const title = opts.bare ? "" : subhead("Key dates");
   const rows = d.criticalPath.ok ? d.criticalPath.milestones : [];
-  const firstUpcoming = rows.findIndex((m) => m.days >= 0);
-  return subhead("Key dates") +
-    (rows.length
-      ? `<ul class="rb-timeline">${rows.map((m, i) => `
-          <li class="${m.days < 0 ? "is-past" : ""} ${i === firstUpcoming ? "is-next" : ""}" data-el="date-${esc(m.id || i)}">
-            <div class="rb-tl-date">${esc(m.id === "submission" ? fmtDeadline(m.date) : fmtDate(m.date))} \u00b7 ${
-              m.days < 0 ? `${Math.abs(m.days)} days ago` : `in ${plural(m.days, "day")}`}</div>
-            <div class="rb-tl-title">${esc(m.label)}</div>
-            ${has(m.ourAction) && m.ourAction !== "\u2014" ? `<div class="rb-sub rb-small">We must: ${esc(m.ourAction)}</div>` : ""}
-          </li>`).join("")}</ul>`
-      : `<p class="rb-empty">No dates captured.</p>`);
+  if (!rows.length) return title + `<p class="rb-empty">No dates captured.</p>`;
+
+  const nResp = rows.filter((m) => m.kind === "response").length;
+  const nProg = rows.filter((m) => m.kind === "program").length;
+  /* Default to whichever kind the pursuit actually has. Both present: response,
+     because that is the clock that can lose you the bid. */
+  const start = nResp ? "response" : "program";
+  const both = nResp && nProg;
+
+  const chip = (id, label, count) => count === 0 && id !== "all" ? "" :
+    `<button type="button" class="rb-chip-f" data-tchip="${id}"
+       aria-pressed="${String(id === start)}">${label}<span class="rb-chip-n">${count}</span></button>`;
+
+  /* The key is only earned when there are two things to tell apart. On a pursuit
+     with response dates only, a legend explaining a distinction that is not on
+     screen is the explanatory helper text we spent a pass removing. */
+  const key = both
+    ? `<div class="rb-key" aria-hidden="true">
+         <span class="rb-key-i" data-kind="response"><i></i>Response — ours to hit</span>
+         <span class="rb-key-i" data-kind="program"><i></i>Program — the client's own dates</span>
+       </div>`
+    : "";
+
+  const firstUpcoming = (kind) => rows.findIndex((m) => m.days >= 0 && m.kind === kind);
+  const nextResp = firstUpcoming("response"), nextProg = firstUpcoming("program");
+  const nextAttr = (i) => i === nextResp ? ' data-next="response"' : i === nextProg ? ' data-next="program"' : "";
+
+  return title +
+    (both
+      ? `<div class="rb-chips" role="group" aria-label="Filter key dates by kind">
+           ${chip("response", "Response", nResp)}${chip("program", "Program", nProg)}${chip("all", "Both", rows.length)}
+         </div>`
+      : "") +
+    key +
+    `<div class="rb-timewrap" data-kind="${start}">
+      <ul class="rb-timeline">${rows.map((m, i) => `
+        <li data-kind="${m.kind}"${nextAttr(i)} class="${m.days < 0 ? "is-past" : ""}" data-el="date-${esc(m.id || i)}">
+          <div class="rb-tl-date">${esc(m.id === "submission" ? fmtDeadline(m.date) : fmtDate(m.date))} \u00b7 ${
+            m.days < 0 ? `${Math.abs(m.days)} days ago` : `in ${plural(m.days, "day")}`}</div>
+          <div class="rb-tl-title">${esc(m.label)}</div>
+          ${has(m.ourAction) && m.ourAction !== "\u2014" ? `<div class="rb-sub rb-small">We must: ${esc(m.ourAction)}</div>` : ""}
+        </li>`).join("")}</ul>
+      <p class="rb-empty rb-filter-empty" hidden>Nothing matches that filter.</p>
+    </div>`;
 }
 
 /* ---------- 5. Rules & Constraints ---------- */
@@ -684,8 +764,7 @@ function secRules(p, d, ctx) {
         ${ctx.edit
           ? `<input class="rb-check" type="checkbox" data-edit="checked" data-coll="rules"
                     data-id="${esc(r.id)}"${r.checked ? " checked" : ""} aria-label="${esc(r.label)}">`
-          : `<span class="rb-id" aria-hidden="true" style="text-align:center;font-size:14px;color:${
-              r.checked ? "var(--rb-accent)" : "var(--rb-gray-2)"}">${r.checked ? "✓" : "○"}</span>`}
+          : `<span class="rb-id">${tick(ctx, "rules", r.id, !!r.checked, r.label, "checked")}</span>`}
         <span${edIn(ctx, `rules[id=${r.id}].label`, "rb-row-text " + (r.checked ? "rb-muted" : ""))}>${esc(r.label)}</span>
         <span></span>
         <span class="rb-meta r">${r.mandatory ? `<span class="rb-chip rb-chip-mand">mandatory</span>` : ""}</span>
@@ -754,7 +833,7 @@ function secRequirements(p, d, ctx) {
     owner: r.owner || "",
     el: `req-${r.id}`,
     html: `<div class="rb-row" style="--rb-c1:70px;--rb-c2:78px;--rb-c3:104px">
-        <span class="rb-id">${esc(r.id)}</span>
+        <span class="rb-id">${tick(ctx, "requirements", r.id, r.status === "done", r.text)}${esc(r.id)}</span>
         <span class="rb-row-text">${ctx.edit
           ? `<span${ed(ctx, `requirements[id=${r.id}].text`)}>${esc(r.text)}</span>`
           : has(r.verbatim) || has(r.source)
@@ -915,7 +994,7 @@ function secQuestions(p, d, ctx) {
         <span class="rb-meta r">${ctx.edit
           ? topicSelect(q) + delBtn(ctx, "questions", q.id)
           : (q.requirementId
-            ? `<a href="#" data-goto="requirements" data-el="req-${esc(q.requirementId)}">${esc(q.requirementId)}</a>` : "")}</span>
+            ? `<a href="${goHref("compliance")}" data-goto="requirements" data-el="req-${esc(q.requirementId)}">${esc(q.requirementId)}</a>` : "")}</span>
       </div></li>`).join("");
 
   const collapsed = readCollapsed(p.briefId);
@@ -1168,16 +1247,16 @@ function secDocuments(p, d, ctx) {
   if (!docs.length) return head("Documents") + `<p class="rb-empty">No source documents recorded.</p>`;
   const anyMissing = docs.some((doc) => !doc.unreadable && !ctx.resolveDoc(doc));
   return head("Documents") +
-    (anyMissing ? `<div class="rb-notice">Source files stay on the machine that imported the
-       pack — they are never uploaded, because this site has no sign-in. Everyone sees the same
-       brief; the files themselves open only where they were imported.</div>` : "") +
+    (anyMissing ? `<div class="rb-notice">Some of these files are not on the board. A file over
+       the attachment limit stays on the machine that imported the pack — re-import the bundle,
+       or open it from there.</div>` : "") +
     `<div>${docs.map((doc) => {
       const href = ctx.resolveDoc(doc);
       const name = doc.unreadable || !href
         ? `<span class="rb-doc-name">${esc(doc.file)}</span> <span class="rb-src">${
             doc.unreadable ? "unprocessed — could not be read"
             : "not on this device — open it from the machine that imported the pack"}</span>`
-        : `<a class="rb-doc-name rb-doclink" href="${esc(href)}" ${docTarget(doc)} data-doc="${esc(doc.file)}">${esc(doc.file)}</a>`;
+        : `<a class="rb-doc-name rb-doclink" href="${esc(href)}" ${docTarget(doc, href)} data-doc="${esc(doc.file)}">${esc(doc.file)}</a>`;
       return `<div class="rb-doc ${doc.unreadable ? "is-unreadable" : ""}" data-el="doc-${esc(doc.file)}">
         ${doc.thumb ? `<img class="rb-doc-thumb" src="${esc(doc.thumb)}" alt="">`
                     : `<span class="rb-doc-thumb rb-doc-glyph">${esc((doc.type || "?").slice(0, 4))}</span>`}
@@ -1193,7 +1272,9 @@ function secDocuments(p, d, ctx) {
 }
 
 const VIEWABLE = ["pdf", "png", "jpg", "jpeg", "txt", "html", "csv", "svg"];
-const docTarget = (doc) => VIEWABLE.includes(String(doc.type || "").toLowerCase())
+const isFetchHref = (h) => typeof h === "string" && h.startsWith("#fetch/");
+const docTarget = (doc, href) => isFetchHref(href) ? ""
+  : VIEWABLE.includes(String(doc.type || "").toLowerCase())
   ? 'target="_blank" rel="noopener"' : `download="${esc(doc.file)}"`;
 
 /* ---------- shared bits ---------- */
@@ -1216,7 +1297,7 @@ function srcLink(src, ctx) {
   const doc = ctx.docByName(src.doc);
   const href = doc ? ctx.resolveDoc(doc, src.page) : null;
   return href
-    ? `<a class="rb-src rb-doclink" href="${esc(href)}" ${docTarget(doc)} data-doc="${esc(src.doc)}">${esc(label)}</a>`
+    ? `<a class="rb-src rb-doclink" href="${esc(href)}" ${docTarget(doc, href)} data-doc="${esc(src.doc)}">${esc(label)}</a>`
     : `<span class="rb-src">${esc(label)}</span>`;
 }
 
@@ -1276,6 +1357,7 @@ export function renderBrief(pack, mount, opts = {}) {
        no name the Mine chip is simply not offered rather than shown broken. */
     collapsed: readCollapsed(pack.briefId),
     me: o.me || "",
+    canTick: !!o.onEdit,
     docByName: (n) => docsByName[n] || null,
     resolveDoc: (doc, page) => {
       if (!doc || doc.unreadable) return null;
@@ -1285,6 +1367,8 @@ export function renderBrief(pack, mount, opts = {}) {
       return base + doc.href + (page && String(doc.type).toLowerCase() === "pdf" ? `#page=${page}` : "");
     },
   };
+
+  BASE_ROUTE = pack.briefId ? `#/b/${encodeURIComponent(pack.briefId)}` : "#";
 
   const live = SECTIONS.filter((s) => (s.when ? s.when(pack) : true));
 
@@ -1296,11 +1380,11 @@ export function renderBrief(pack, mount, opts = {}) {
         <div class="rb-nav-eyebrow">${esc(pack.client || "Brief")}</div>
         ${live.filter((s) => !s.chrome).map((s) => {
           const c = s.count ? s.count(pack) : null;
-          return `<a href="#" data-goto="${s.id}"><span>${esc(s.label)}</span>${
+          return `<a href="${goHref(s.id)}" data-goto="${s.id}"><span>${esc(s.label)}</span>${
             c ? `<span class="rb-nav-count">${c}</span>` : ""}</a>`;
         }).join("")}
         ${live.some((s) => s.chrome && s.id === "documents")
-          ? `<a href="#" data-goto="documents" class="rb-nav-chrome"><span>Documents</span><span class="rb-nav-count">${arr(pack.documents).length}</span></a>`
+          ? `<a href="${goHref("documents")}" data-goto="documents" class="rb-nav-chrome"><span>Documents</span><span class="rb-nav-count">${arr(pack.documents).length}</span></a>`
           : ""}
       </nav>
       <main class="rb-main"><div class="rb-col">
@@ -1332,6 +1416,20 @@ export function renderBrief(pack, mount, opts = {}) {
       const vis = [...list.querySelectorAll(".rb-rows > li")]
         .filter((li) => getComputedStyle(li).display !== "none").length;
       const empty = list.querySelector(".rb-filter-empty");
+      if (empty) empty.hidden = vis > 0;
+      return;
+    }
+    const tchip = e.target.closest("[data-tchip]");
+    if (tchip) {
+      e.preventDefault();
+      const wrap = tchip.closest(".rb-section")?.querySelector(".rb-timewrap");
+      if (!wrap) return;
+      wrap.dataset.kind = tchip.dataset.tchip;
+      tchip.parentElement.querySelectorAll("[data-tchip]").forEach((b) =>
+        b.setAttribute("aria-pressed", String(b === tchip)));
+      const vis = [...wrap.querySelectorAll(".rb-timeline > li")]
+        .filter((li) => getComputedStyle(li).display !== "none").length;
+      const empty = wrap.querySelector(".rb-filter-empty");
       if (empty) empty.hidden = vis > 0;
       return;
     }
@@ -1419,6 +1517,24 @@ export function renderBrief(pack, mount, opts = {}) {
       else alert("Meeting Mode arrives in the next renderer release.\n\nUntil then: run the meeting off the Snapshot and the Coverage matrix, and capture decisions in the Decisions section.");
     }
   });
+
+  /* Closing a row is not editing. It is the commonest act on the page, so it is
+     bound outside the ctx.edit block and writes through the same override path
+     as the status select — one code path, one audit trail. */
+  if (o.onEdit) {
+    on("change", (e) => {
+      const t = e.target.closest("[data-tick]");
+      if (!t) return;
+      const coll = t.dataset.tick, id = t.dataset.id, field = t.dataset.tickf || "status";
+      const value = field === "checked" ? t.checked : (t.checked ? "done" : "open");
+      o.onEdit({
+        kind: "set", coll, itemId: id, field,
+        path: `${coll}[id=${id}].${field}`, value,
+        elementId: `${coll}-${id}.${field}`,
+        label: `${id} · ${t.checked ? "done" : "reopened"}`,
+      });
+    });
+  }
 
   /* ---------- edit events ----------
      Structured controls commit on change and trigger a re-render, because
@@ -1725,9 +1841,12 @@ function attachPopovers(root, docsByName, ctx, signal) {
       ${has(doc.purpose) ? `<p class="rb-small" style="margin-top:7px">${esc(doc.purpose)}</p>` : ""}
       ${arr(doc.keySections).length ? `<p class="rb-small rb-muted" style="margin-top:3px">Key: ${esc(doc.keySections.join(" · "))}</p>` : ""}
       ${has(doc.excerpt) && !doc.thumb ? `<p class="rb-small rb-muted" style="margin-top:7px">“${esc(doc.excerpt)}”</p>` : ""}
-      ${href ? `<div class="rb-pop-actions">
-        <a class="rb-btn" href="${esc(href)}" target="_blank" rel="noopener">Open</a>
-        <a class="rb-btn" href="${esc(href)}" download="${esc(doc.file)}">Download</a></div>` : ""}`;
+      ${!href ? "" : isFetchHref(href)
+        ? `<div class="rb-pop-actions">
+             <a class="rb-btn" href="${esc(href)}">Get the file</a></div>`
+        : `<div class="rb-pop-actions">
+             <a class="rb-btn" href="${esc(href)}" target="_blank" rel="noopener">Open</a>
+             <a class="rb-btn" href="${esc(href)}" download="${esc(doc.file)}">Download</a></div>`}`;
     pop.hidden = false;
     place(anchor);
     current = anchor;

@@ -1,5 +1,5 @@
 {
-  "rendererVersion": "2.0.0",
+  "rendererVersion": "2.1.0",
   "schemaSupport": {
     "min": 1,
     "max": 4
@@ -27,7 +27,6 @@
     "components": [
       "readiness",
       "criticalPath",
-      "ownerLoad",
       "coverage"
     ],
     "docPreviews": true,
@@ -35,13 +34,17 @@
     "liveSync": true,
     "meetingMode": false,
     "aiAssist": false,
-    "listComponent": true
+    "listComponent": true,
+    "dateKinds": true,
+    "tickToClose": true,
+    "carriedDocuments": true
   },
   "changelog": [
-    "2.0.0 — the V2 information architecture, from four user-feedback sessions. Twelve nav sections become EIGHT: Snapshot absorbs The Ask (Scope); Key Dates + Action Checklist become Plan; Rules & Constraints + Requirements become Compliance; Evaluation + Pass/Fail Gates become Scorecard; Decisions & Parking Lot becomes Record, last. Document Map leaves the nav and sits as a separate launcher at its foot. Every list now shares one component: filter chips driven by its own statuses plus Mine, collapsible groups with persisted state, and a three-state status token (done | open | atRisk) that means the same thing everywhere — filtering is a CSS state flip, never a re-render, so it cannot disturb edit mode or fight live sync. Team & Burden estimates in HOURS not fractional FTE, with effort distribution; 'Current load' renamed because it read as personal availability. Risk detail collapses behind an expander and renders a suggested strategic response. Soft signals replaces 'beige'. The 'must' chip is suppressed when every row carries it. Old section routes (ask, checklist, dates, rules, requirements) resolve through aliases so shared links survive.",
-    "1.2.0 — live edit sync: elements, activity and the pursuit index now stream over onSnapshot instead of being read once at load, so another person's edit reaches the open brief without a reload. Remote changes park while a field is focused and land on blur, so a re-render can never eat what someone is typing. Comment listener reconnects with backoff instead of degrading permanently on one blip. schemaSupport raised to 4. editMode declared honestly — it shipped in 1.1.x but the manifest still said false.",
-    "1.1.0 — visual craft pass: one type scale, one row grid, one chip system, controlled measure, masthead + countdown pill, inline source disclosure, AA-safe greys.",
-    "1.0.0 — first release: 12 sections read mode, four derived components, document previews."
+    "2.1.0 \u2014 three fixes and one behaviour change. (1) KEY DATES carry a kind: response dates are ours to hit, programme dates are the client's own, and the two are colour-coded with a key and filtered one at a time \u2014 a rail mixing 'in 4 days' with 'in 14 months' made the far date read as slack on the near one. dates[].kind is honoured where the pack states it and inferred from the label where it does not; the countdown tile's 'Next' now ignores programme dates, which is why it was pointing at a milestone a year out. (2) TICK TO CLOSE: action items, requirements and submission rules can be marked done from read mode. Closing a row was behind the edit button, which is a mode you have to know exists; the tick writes the same override and the same activity row. (3) The Plan tab's 'who's carrying what' heatmap is gone \u2014 on a real pursuit it was a grid of ones and zeroes above a checklist already grouped by owner. Also: data-goto anchors now carry their real route instead of href='#', one heading over Key dates instead of two, and a document link the site is carrying resolves on click rather than blocking first paint on every attached PDF.",
+    "2.0.0 \u2014 the V2 information architecture, from four user-feedback sessions. Twelve nav sections become EIGHT: Snapshot absorbs The Ask (Scope); Key Dates + Action Checklist become Plan; Rules & Constraints + Requirements become Compliance; Evaluation + Pass/Fail Gates become Scorecard; Decisions & Parking Lot becomes Record, last. Document Map leaves the nav and sits as a separate launcher at its foot. Every list now shares one component: filter chips driven by its own statuses plus Mine, collapsible groups with persisted state, and a three-state status token (done | open | atRisk) that means the same thing everywhere \u2014 filtering is a CSS state flip, never a re-render, so it cannot disturb edit mode or fight live sync. Team & Burden estimates in HOURS not fractional FTE, with effort distribution; 'Current load' renamed because it read as personal availability. Risk detail collapses behind an expander and renders a suggested strategic response. Soft signals replaces 'beige'. The 'must' chip is suppressed when every row carries it. Old section routes (ask, checklist, dates, rules, requirements) resolve through aliases so shared links survive.",
+    "1.2.0 \u2014 live edit sync: elements, activity and the pursuit index now stream over onSnapshot instead of being read once at load, so another person's edit reaches the open brief without a reload. Remote changes park while a field is focused and land on blur, so a re-render can never eat what someone is typing. Comment listener reconnects with backoff instead of degrading permanently on one blip. schemaSupport raised to 4. editMode declared honestly \u2014 it shipped in 1.1.x but the manifest still said false.",
+    "1.1.0 \u2014 visual craft pass: one type scale, one row grid, one chip system, controlled measure, masthead + countdown pill, inline source disclosure, AA-safe greys.",
+    "1.0.0 \u2014 first release: 12 sections read mode, four derived components, document previews."
   ],
-  "notes": "Fetch renderer.js + renderer.css from this directory and inline both to build a standalone brief. Do not fork — improvements here re-render every hosted pursuit on redeploy. Section IDS are preserved across the 12->8 merge and SECTION_ALIASES maps the retired ones, because #/b/<pursuit>/requirements links are already shared in Teams threads; a tidier id set is not worth a dead link."
+  "notes": "Fetch renderer.js + renderer.css from this directory and inline both to build a standalone brief. Do not fork \u2014 improvements here re-render every hosted pursuit on redeploy. Section IDS are preserved across the 12->8 merge and SECTION_ALIASES maps the retired ones, because #/b/<pursuit>/requirements links are already shared in Teams threads; a tidier id set is not worth a dead link. Document bytes are base64-chunked into pursuits/{briefId}/files \u2014 deploy firestore.rules alongside a renderer that expects them, or every fetch fails closed."
 }
