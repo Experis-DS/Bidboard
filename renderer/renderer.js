@@ -128,7 +128,7 @@ function deriveCriticalPath(pack) {
   const upcoming = milestones.filter((m) => m.days >= 0);
   const late = arr(pack.actionItems).filter((i) => i.status !== "done" && daysFromNow(i.due) < 0);
   const subDays = sub ? daysFromNow(sub) : null;
-  /* "Next" means the next thing WE have to do. A client programme milestone a
+  /* "Next" means the next thing WE have to do. A client program milestone a
      year out is not a nearer constraint than the submission, and reading it as
      one is how the countdown tile stopped being trusted. */
   const nearest = upcoming.find((m) => m.id !== "submission" && m.kind === "response")
@@ -254,10 +254,10 @@ const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "plan", req
    you get a timeline where "in 4 days" and "in 14 months" share a rail, and the
    eye reads the far date as slack on the near one.
 
-   So: classify, colour, and show ONE kind at a time by default. The pack may
+   So: classify, color, and show ONE kind at a time by default. The pack may
    state `kind` outright; where it does not the label decides. Unclassifiable
-   falls to "response", because an unlabelled date on an RFP brief is far more
-   likely to belong to the submission clock than to the client's programme. */
+   falls to "response", because an unlabeled date on an RFP brief is far more
+   likely to belong to the submission clock than to the client's program. */
 const PROGRAM_WORDS = /(start|commenc|kick[- ]?off|kickoff|go[- ]?live|golive|launch|transition|onboard|mobilis|mobiliz|ramp|cut[- ]?over|phase|milestone|contract|renewal|expir|implementation|steady state|hand[- ]?over)/i;
 const RESPONSE_WORDS = /(q&a|q ?and ?a|question|clarification|addend|amend|intent|nda|submi|due|proposal|bid|tender|oral|present|demo|shortlist|award|notif|evaluat|interview|registration|portal|deadline|pre[- ]?bid|site visit|conference|response)/i;
 
@@ -265,10 +265,10 @@ const KIND_LABEL = { response: "Response", program: "Program" };
 
 function dateKind(d) {
   const stated = String((d && d.kind) || "").toLowerCase();
-  if (stated === "program" || stated === "programme") return "program";
+  if (stated === "program" || stated === "program") return "program";
   if (stated === "response" || stated === "procurement") return "response";
   const t = String((d && d.type) || "").toLowerCase();
-  if (t === "program" || t === "programme" || t === "milestone") return "program";
+  if (t === "program" || t === "program" || t === "milestone") return "program";
   if (t === "qa" || t === "submission" || t === "award" || t === "orals") return "response";
   const label = `${(d && d.label) || ""} ${(d && d.ourAction) || ""}`;
   if (RESPONSE_WORDS.test(label)) return "response";
@@ -346,7 +346,7 @@ function secSnapshot(p, d, ctx) {
 
   const outlook = p.signals?.winLikelihood
     ? `<div class="rb-zone rb-outlook">Outlook: <b>${esc(p.signals.winLikelihood)}</b>${
-        summariseSignals(p.signals)} <a href="${goHref("risks")}" data-goto="risks">Details&nbsp;→</a></div>`
+        summarizeSignals(p.signals)} <a href="${goHref("risks")}" data-goto="risks">Details&nbsp;→</a></div>`
     : "";
 
   return `
@@ -391,7 +391,7 @@ function secSnapshot(p, d, ctx) {
     </div>`;
 }
 
-function summariseSignals(s) {
+function summarizeSignals(s) {
   const bits = [];
   if (arr(s.red).length) bits.push(`${plural(s.red.length, "signal")} against`);
   if (arr(s.green).length) bits.push(`${s.green.length} for`);
@@ -520,9 +520,18 @@ const edIn = (ctx, path, cls) => (ctx.edit
   ? ` contenteditable="plaintext-only" spellcheck="false" class="${cls} rb-etext" data-etext="${esc(path)}"`
   : ` class="${cls}"`);
 
-const delBtn = (ctx, coll, id) => (ctx.edit
-  ? `<button class="rb-del" data-del="${coll}" data-id="${esc(id)}" title="Delete" aria-label="Delete ${esc(id)}">×</button>`
+const delBtn = (ctx, coll, id, key) => (ctx.edit
+  ? `<button class="rb-del" data-del="${coll}" data-id="${esc(id)}"${
+      key ? ` data-delkey="${esc(key)}"` : ""} title="Delete" aria-label="Delete ${esc(id)}">×</button>`
   : "");
+
+/* A number field. Hours are the only numeric input in the brief and they were
+   read-only, which made the whole Effort & team tab read-only for no reason
+   other than nobody having written this. */
+const numIn = (ctx, coll, id, field, value, key) => `
+  <input class="rb-in rb-in-num" type="number" min="0" step="10"
+    data-edit="${field}" data-coll="${coll}" data-id="${esc(id)}"${key ? ` data-key="${esc(key)}"` : ""}
+    value="${value ? esc(String(value)) : ""}" aria-label="${esc(field)}">`;
 
 const addBtn = (ctx, coll, label) => (ctx.edit
   ? `<div class="rb-addrow"><button class="rb-btn rb-add" data-add="${coll}">+ ${esc(label)}</button></div>` : "");
@@ -542,7 +551,7 @@ const statusSelect = (id, coll, value) => `
 
 /* ---------- the shared list ----------
    Standing rule from the feedback sessions: EVERY list gets filter, collapse and
-   a status. It is a pattern, not a per-section judgement — there are nine lists
+   a status. It is a pattern, not a per-section judgment — there are nine lists
    in this brief and hand-rolling filters per section is how they diverge.
 
    Filtering is CSS, driven by data-filter on the wrapper. That is deliberate:
@@ -568,7 +577,8 @@ const STATUS_LABEL = { done: "done", open: "open", atRisk: "at risk" };
 /* rows: [{ html, status, owner }] */
 function listBlock(ctx, key, title, rows, opts = {}) {
   if (!rows.length) return "";
-  const n = (s) => rows.filter((r) => r.status === s).length;
+  const sev = opts.axis === "sev";
+  const n = (v) => rows.filter((r) => (sev ? r.sev : r.status) === v).length;
   const owners = new Set(rows.map((r) => r.owner).filter(Boolean));
   const collapsed = ctx.collapsed.has(key);
 
@@ -576,19 +586,19 @@ function listBlock(ctx, key, title, rows, opts = {}) {
     `<button type="button" class="rb-chip-f" data-lchip="${id}" data-list="${esc(key)}"
        aria-pressed="${on}">${label}<span class="rb-chip-n">${count}</span></button>`;
 
-  const showMine = !!ctx.me && owners.has(ctx.me);
+  const showMine = !sev && !!ctx.me && owners.has(ctx.me);
   const controls = `<div class="rb-chips" role="group" aria-label="Filter ${esc(title)}">
       ${chip("all", "All", rows.length, true)}
-      ${chip("open", "Open", n("open"), false)}
-      ${chip("atRisk", "At risk", n("atRisk"), false)}
-      ${chip("done", "Done", n("done"), false)}
+      ${sev
+        ? `${chip("high", "High", n("high"), false)}${chip("med", "Medium", n("med"), false)}${chip("low", "Low", n("low"), false)}`
+        : `${chip("open", "Open", n("open"), false)}${chip("atRisk", "At risk", n("atRisk"), false)}${chip("done", "Done", n("done"), false)}`}
       ${showMine ? chip("mine", "Mine", rows.filter((r) => r.owner === ctx.me).length, false) : ""}
     </div>`;
 
   return `<div class="rb-group rb-list" data-list="${esc(key)}" data-filter="all">
     <div class="rb-group-head">
       <button type="button" class="rb-collapse" data-lcollapse="${esc(key)}"
-        aria-expanded="${!collapsed}"><span class="rb-caret" aria-hidden="true"></span>${esc(title)}</button>
+        aria-expanded="${!collapsed}">${esc(title)}</button>
       <span class="rb-nav-count">${plural(rows.length, opts.unit || "item")}</span>
     </div>
     <div class="rb-list-body"${collapsed ? " hidden" : ""}>
@@ -596,9 +606,10 @@ function listBlock(ctx, key, title, rows, opts = {}) {
             actually something to filter BY — more than one status present, or a
             list long enough that scanning it is work. A single chip row over
             three identical rows is noise, not affordance. */""}
-      ${(rows.length > 3 || new Set(rows.map((r) => r.status)).size > 1 || showMine) ? controls : ""}
+      ${(rows.length > 3 || new Set(rows.map((r) => (sev ? r.sev : r.status))).size > 1 || showMine) ? controls : ""}
       <ul class="rb-rows">${rows.map((r) =>
-        `<li data-status="${r.status}"${r.owner ? ` data-owner="${esc(r.owner)}"` : ""}${
+        `<li${r.status ? ` data-status="${r.status}"` : ""}${r.sev ? ` data-sev="${esc(r.sev)}"` : ""}${
+          r.owner ? ` data-owner="${esc(r.owner)}"` : ""}${
           r.el ? ` data-el="${esc(r.el)}"` : ""}>${r.html}</li>`).join("")}</ul>
       <p class="rb-empty rb-filter-empty" hidden>Nothing matches that filter.</p>
     </div>
@@ -642,7 +653,7 @@ function secScope(p, d, ctx) {
    screen and making it a dashboard instead of a read-out. */
 function secPlan(p, d, ctx) {
   const items = arr(p.actionItems);
-  /* Response dates only. Programme dates moved to Delivery scope, where they
+  /* Response dates only. Program dates moved to Delivery scope, where they
      describe the engagement rather than pretending to be slack on our clock. */
   const resp = d.criticalPath.ok
     ? d.criticalPath.milestones.filter((m) => m.kind === "response")
@@ -675,14 +686,14 @@ function secPlan(p, d, ctx) {
     secChecklist(p, d, ctx) +
     (resp.length
       ? `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
-           <summary><span class="rb-caret" aria-hidden="true"></span>Our clock</summary>
+           <summary>Our clock</summary>
            <div class="rb-fold-body">${timeline(resp, "response")}</div>
          </details>`
       : "");
 }
 
 /* Delivery scope — what we would be on the hook for if we win, and over what
-   timeline. The programme dates live HERE and not in readiness: they are dates
+   timeline. The program dates live HERE and not in readiness: they are dates
    the client tells us about, not dates we hit, and on one rail with our
    submission clock a milestone fourteen months out reads as slack on something
    due Friday.
@@ -698,8 +709,8 @@ function secRequirementsTab(p, d, ctx) {
   return head("Delivery scope", n ? `${plural(n, "requirement")} — the scope we are committing to` : "") +
     secRequirements(p, d, ctx) +
     (prog.length
-      ? `<details class="rb-fold" data-el="programme">
-           <summary><span class="rb-caret" aria-hidden="true"></span>Their programme</summary>
+      ? `<details class="rb-fold" data-el="program">
+           <summary>Their program</summary>
            <div class="rb-fold-body">${timeline(prog, "program")}</div>
          </details>`
       : "");
@@ -771,10 +782,10 @@ function secChecklist(p, d, ctx) {
 
 /* ---------- 4. Key Dates ---------- */
 /* ONE timeline component, ONE kind per call.
-   The kind filter chips and the two-colour key were the right answer while both
+   The kind filter chips and the two-color key were the right answer while both
    clocks shared a rail; splitting the clocks across two tabs makes both
    redundant, and a legend explaining a distinction that is not on screen is
-   exactly the explanatory helper text we keep removing. Colour stays — it is now
+   exactly the explanatory helper text we keep removing. Color stays — it is now
    the only thing carrying which clock you are looking at.
 
    The six-step stage stepper is still gone and still not coming back. It moved
@@ -798,16 +809,65 @@ function timeline(rows, kind) {
 }
 
 /* ---------- 5. Rules & Constraints ---------- */
+const RULE_CATEGORIES = [
+  "Eligibility",
+  "Format & limits",
+  "Required forms",
+  "Delivery",
+  "Unclassified",
+];
+const RULE_HINTS = [
+  ["Eligibility",     /(eligib|qualif|registrat|certif|licen[cs]|insur|clearance|incorporat|sam\.gov|dun|accredit|minority|diversity)/i],
+  ["Format & limits", /(page|word|font|margin|pdf|docx|file type|file size|\bmb\b|\bpp\b|template|form factor|appendix|attachment limit|format)/i],
+  ["Required forms",  /(form|w-?9|signature|signed|notaris|notariz|affidavit|schedule|exhibit|annex|questionnaire|pricing sheet|cover letter)/i],
+  ["Delivery",        /(portal|ariba|coupa|email|upload|submit via|deliver|address|hand deliver|courier|sealed|copies)/i],
+];
+function ruleCategory(r) {
+  const stated = String((r && r.category) || "");
+  const hit = RULE_CATEGORIES.find((c) => c.toLowerCase() === stated.toLowerCase());
+  if (hit) return hit;
+  const label = `${(r && r.label) || ""} ${(r && r.detail) || ""}`;
+  for (const [cat, re] of RULE_HINTS) if (re.test(label)) return cat;
+  return "Unclassified";
+}
+
 function secRules(p, d, ctx) {
   const rules = arr(p.rules);
   if (!rules.length) return "";
-  return `<ul class="rb-rows">${rules.map((r) => `
-      <li data-el="rule-${esc(r.id)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:170px">
+
+  /* A rule carrying a date is a deadline, and a deadline is timeline content.
+     It renders through the SAME component as the client's program dates on
+     Delivery scope — one timeline in the brief, not one per tab. */
+  const dated = rules
+    .filter((r) => parseDate(r.date))
+    .map((r) => ({ id: r.id, label: r.label, date: r.date, days: daysFromNow(r.date), kind: "response" }))
+    .sort((a, b) => a.days - b.days);
+  const plain = rules.filter((r) => !parseDate(r.date));
+
+  const row = (r) => ({
+    owner: "",
+    el: `rule-${r.id}`,
+    html: `<div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:170px">
         <span${edIn(ctx, `rules[id=${r.id}].label`, "rb-row-text")}>${esc(r.label)}</span>
         <span></span>
         <span></span>
         <span class="rb-meta r">${ctx.edit ? delBtn(ctx, "rules", r.id) : srcLink(r.source, ctx)}</span>
-      </div></li>`).join("")}</ul>` + addBtn(ctx, "rules", "Add a rule");
+      </div>`,
+  });
+
+  const groups = RULE_CATEGORIES
+    .map((cat) => [cat, plain.filter((r) => ruleCategory(r) === cat)])
+    .filter(([, rs]) => rs.length);
+
+  return groups.map(([cat, rs]) =>
+      listBlock(ctx, `rule:${cat}`, cat, rs.map(row), { unit: "rule" })).join("") +
+    (dated.length
+      ? `<details class="rb-fold" data-el="rule-dates">
+           <summary>Dates that bind the bid</summary>
+           <div class="rb-fold-body">${timeline(dated, "response")}</div>
+         </details>`
+      : "") +
+    addBtn(ctx, "rules", "Add a rule");
 }
 
 function secPreflight(p, d, ctx) {
@@ -894,22 +954,35 @@ function secEvaluation(p, d, ctx) {
   const mechanic = crit.length
     ? `Scored out of ${total || 100}. Heaviest weight: ${esc(crit.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0))[0].name)}.`
     : "How they score it — and therefore where effort pays.";
+  const root = p.scorecard ? "scorecard" : "evaluation";
   return head("Scoring & fit", mechanic) +
-    (crit.length
+    (crit.length || ctx.edit
       ? `<ul class="rb-weights">${crit.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0)).map((c) => `
-          <li><span>${esc(c.name)}</span>
+          <li><span${edIn(ctx, `${root}.criteria[name=${c.name}].name`, "")}>${esc(c.name)}</span>
             <span class="rb-weight-bar"><i style="width:${((c.weight || 0) / max) * 100}%"></i></span>
-            <span class="rb-weight-num">${esc(c.weight)}%</span></li>`).join("")}</ul>`
+            <span class="rb-weight-num">${ctx.edit
+              ? numIn(ctx, `${root}.criteria`, c.name, "weight", c.weight, "name")
+              : `${esc(c.weight)}%`}</span>
+            ${ctx.edit ? `<span>${delBtn(ctx, `${root}.criteria`, c.name, "name")}</span>` : ""}</li>`).join("")}</ul>
+         ${addBtn(ctx, `${root}.criteria`, "Add a criterion")}`
       : `<p class="rb-empty">No scoring weights stated.</p>`) +
-    /* Was "Pass / fail gates" — a misleading name over mis-modelled content.
+    /* Was "Pass / fail gates" — a misleading name over mis-modeled content.
        Nobody could relate it to the weights beside it ("what percentage means
        that I fail?") because these are not thresholds: they are stated
        must-haves and explicit rule-outs, often said aloud at kickoff rather
        than written in the RFP. */
-    (success.length
+    (success.length || ctx.edit
       ? `<div class="rb-group"><div class="rb-group-head"><span>Criteria for success</span><span class="rb-nav-count">${success.length}</span></div>
-         <ul class="rb-rows">${success.map((g) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
-           <span class="rb-row-text">${esc(typeof g === "string" ? g : (g.text || g.basis || ""))}</span><span></span><span></span><span></span></div></li>`).join("")}</ul></div>` : "") +
+         <ul class="rb-rows">${success.map((g, i) => `
+           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "0px"}">
+             <span${edIn(ctx, typeof g === "string"
+               ? `${root}.successCriteria[${i}]`
+               : `${root}.successCriteria[${i}].text`, "rb-row-text")}>${
+               esc(typeof g === "string" ? g : (g.text || g.basis || ""))}</span>
+             <span></span><span></span>
+             <span class="rb-meta r">${delBtn(ctx, `${root}.successCriteria`, String(i), "@index")}</span>
+           </div></li>`).join("")}</ul>
+         ${addBtn(ctx, `${root}.successCriteria`, "Add a criterion")}</div>` : "") +
     (has(e.guidance)
       ? `<div class="rb-verdict" style="margin-top:var(--rb-s4)"><p><b>Where to over-invest</b><span${
           ed(ctx, p.scorecard ? "scorecard.guidance" : "evaluation.guidance")}>${esc(e.guidance)}</span></p></div>` : "");
@@ -940,15 +1013,17 @@ function secRequirements(p, d, ctx) {
           ? ownerSelect(ctx, r.id, "requirements", r.owner)
           : esc(r.owner || "unowned")}</span>
         ${ctx.edit
-          ? statusSelect(r.id, "requirements", r.status)
+          ? statusSelect(r.id, "requirements", r.status) + delBtn(ctx, "requirements", r.id)
           : statusPill(rowStatus(r, { mandatoryMatters: true }))}
       </div>`,
   });
 
-  return
-    themes.map((th) => listBlock(ctx, `req:${th}`, th,
+  /* `return` on its own line let ASI insert a semicolon and the map below became
+     dead code — Delivery scope rendered a heading and nothing else. Caught by a
+     browser check; a syntax pass would never have flagged it. */
+  return themes.map((th) => listBlock(ctx, `req:${th}`, th,
       reqs.filter((r) => (r.theme || "Ungrouped") === th).map(rowFor),
-      { unit: "requirement" })).join("");
+      { unit: "requirement" })).join("") + addBtn(ctx, "requirements", "Add a requirement");
 }
 
 const COMPETENCIES = [
@@ -965,13 +1040,41 @@ const COMPETENCIES = [
 ];
 const compKey = (n) => String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 const COMP_INDEX = new Map(COMPETENCIES.map((n, i) => [compKey(n), i]));
-const compRank = (n) => (COMP_INDEX.has(compKey(n)) ? COMP_INDEX.get(compKey(n)) : 99);
-const offMenu = (n) => !COMP_INDEX.has(compKey(n));
+
+/* Read-time synonyms. Ordered: the first pattern that matches wins, so the
+   narrow ones come before the broad ones — "model training" must beat "data",
+   and "test automation" must beat "automation" reaching DevSecOps. */
+const COMP_SYNONYMS = [
+  ["Annotation & Model Training",    /(annotat|label(l)?ing|model train|rlhf|ground truth|fine[- ]?tun)/i],
+  ["UX Research",                    /(ux research|user research|usability|discovery research|ethnograph)/i],
+  ["Product Design",                 /(product design|\bux\b|\bui\b|interaction design|service design|prototyp|design system|brand system)/i],
+  ["Quality & Test Automation",      /(\bqa\b|quality|test|sdet|performance engineer|resilien|release quality)/i],
+  ["Data, Analytics & AI",           /(analytic|\bbi\b|forecast|machine learning|\bml\b|\bai\b|data platform|data scien|reporting|insight)/i],
+  ["Data Collection & Benchmarking", /(benchmark|data collection|competitive intel|market scan|signal collection|survey)/i],
+  ["Cloud & Platform Engineering",   /(cloud|azure|\baws\b|\bgcp\b|platform|migration|modernis|moderniz|\bapi\b|infrastructure|kubernetes)/i],
+  ["DevSecOps & Service Management", /(devsecops|devops|security|cyber|\bci\/cd\b|\biac\b|observab|\bitsm\b|service management|service desk|digital workspace|compliance engineer)/i],
+  ["Strategy & Transformation",      /(strateg|transformation|roadmap|operating model|\bpmo\b|governance|change management|advisory)/i],
+  ["Development & Engineering",      /(develop|engineer|software|full[- ]?stack|front[- ]?end|back[- ]?end|build|integration|mobile|web app)/i],
+];
+
+/* Returns the canonical area, or null when nothing plausibly matches — a wrong
+   mapping is worse than an honest "outside our ten areas", because it hides a
+   demand we may not actually be able to sell. */
+function canonicalComp(name) {
+  const k = compKey(name);
+  if (COMP_INDEX.has(k)) return COMPETENCIES[COMP_INDEX.get(k)];
+  for (const [area, re] of COMP_SYNONYMS) if (re.test(String(name || ""))) return area;
+  return null;
+}
+const compRank = (n) => {
+  const c = canonicalComp(n);
+  return c ? COMP_INDEX.get(compKey(c)) : 99;
+};
 
 /* ---------- 8. Team & Burden ---------- */
 function secTeam(p, d, ctx) {
   const t = p.team || {};
-  /* HOURS ONLY. FTE is gone from this view, not de-emphasised: "I do not
+  /* HOURS ONLY. FTE is gone from this view, not de-emphasized: "I do not
      understand the function of 0.5 FTE — is it suggesting a headcount?" In a
      staffing company a fractional FTE reads as permanent headcount to hire, and
      the number was never that. It was always effort. `fte` is still accepted in
@@ -990,16 +1093,25 @@ function secTeam(p, d, ctx) {
   const hrs = (n) => (n ? `${n.toLocaleString()} hrs` : "\u2014");
   const DIST = { front: "front-loaded", back: "back-loaded", even: "spread evenly" };
   return head("Effort & team", "What delivering this would take. DRAFT.") +
-    (arr(p.roster).length
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Roster</span><span class="rb-nav-count">${p.roster.length}</span></div>
-         <ul class="rb-rows">${p.roster.map((r) => `
-           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:200px">
-             <span class="rb-row-text"><b>${esc(r.name)}</b></span><span></span><span></span>
-             <span class="rb-meta r">${esc(r.role || "")}</span></div></li>`).join("")}</ul></div>` : "")
+
+    /* Roster was read-only for no reason other than nobody having written the
+       markup. It has no ids, so every control keys on `name`. */
+    (arr(p.roster).length || ctx.edit
+      ? `<div class="rb-group"><div class="rb-group-head"><span>Roster</span>
+           <span class="rb-nav-count">${plural(arr(p.roster).length, "person", "people")}</span></div>
+         <ul class="rb-rows">${arr(p.roster).map((r) => `
+           <li data-el="roster-${esc(r.name)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "200px"}">
+             <span class="rb-row-text"><b${edIn(ctx, `roster[name=${r.name}].name`, "")}>${esc(r.name)}</b>${
+               ctx.edit ? `<br><span${edIn(ctx, `roster[name=${r.name}].role`, "rb-meta")}>${esc(r.role || "role")}</span>` : ""}</span>
+             <span></span>
+             <span class="rb-meta r">${ctx.edit ? "" : esc(r.role || "")}</span>
+             <span class="rb-meta r">${delBtn(ctx, "roster", r.name, "name")}</span>
+           </div></li>`).join("")}</ul>${addBtn(ctx, "roster", "Add a person")}</div>`
+      : "")
     +
-    (comps.length
+    (comps.length || ctx.edit
       ? `<div class="rb-group rb-effort" data-basis="${hasAi ? "ai" : "analog"}">
-           <div class="rb-group-head"><span>Competencies the RFP demands</span>
+           <div class="rb-group-head"><span>Competencies this RFP demands</span>
              <span class="rb-nav-count"><span class="rb-e-analog">${hrs(totalHours)}</span><span class="rb-e-ai">${
                hrs(totalAi)}</span> draft${
                has(t.distribution) ? ` \u00b7 ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span></div>
@@ -1012,22 +1124,48 @@ function secTeam(p, d, ctx) {
                   ${saving > 0 ? `<span class="rb-e-saving">${saving}% less with AI in the delivery model</span>` : ""}
                 </div>`
              : ""}
-         <ul class="rb-rows">${comps.map((c) => `
-           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:180px;--rb-c3:88px">
-             <span class="rb-row-text">${esc(c.name)}${
-               offMenu(c.name) ? ` <span class="rb-src">outside our ten areas of expertise</span>` : ""}</span><span></span>
+         <ul class="rb-rows">${comps.map((c) => {
+            /* The row LEADS with our area of expertise, not with whatever the RFP
+               happened to call it. A pack written before the vocabulary closed
+               says "Cyber"; the reader needs to see "DevSecOps & Service
+               Management", and the original wording kept underneath so the
+               mapping is auditable rather than magic. */
+            const canon = canonicalComp(c.name);
+            const mapped = canon && compKey(canon) !== compKey(c.name);
+            return `
+           <li data-el="comp-${esc(c.name)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:${
+             ctx.edit ? "200px" : "150px"};--rb-c3:${ctx.edit ? "150px" : "88px"}">
+             <span class="rb-row-text">${ctx.edit
+               ? `<span${edIn(ctx, `team.competencies[name=${c.name}].name`, "")}>${esc(c.name)}</span>`
+               : esc(canon || c.name)}${
+               !canon ? ` <span class="rb-src">outside our ten areas of expertise</span>`
+               : mapped ? `<br><span class="rb-meta">stated as “${esc(c.name)}”</span>` : ""}</span>
+             <span></span>
              <span class="rb-meta r">${arr(c.requirementIds).length ? esc(c.requirementIds.join(", ")) : ""}</span>
-             <b class="rb-meta r" style="color:var(--rb-ink)"><span class="rb-e-analog">${
-               hrs(hoursOf(c))}</span><span class="rb-e-ai">${hrs(aiOf(c) || hoursOf(c))}</span></b></div></li>`).join("")}</ul></div>`
+             ${ctx.edit
+               ? `<span class="rb-meta r rb-hourpair">${
+                   numIn(ctx, "team.competencies", c.name, "hours", c.hours, "name")}${
+                   numIn(ctx, "team.competencies", c.name, "hoursAi", c.hoursAi, "name")}${
+                   delBtn(ctx, "team.competencies", c.name, "name")}</span>`
+               : `<b class="rb-meta r" style="color:var(--rb-ink)"><span class="rb-e-analog">${
+                   hrs(hoursOf(c))}</span><span class="rb-e-ai">${hrs(aiOf(c) || hoursOf(c))}</span></b>`}
+           </div></li>`;
+          }).join("")}</ul>
+          ${ctx.edit ? `<p class="rb-formula">Left box: analog hours. Right box: the same scope with AI in the delivery model.</p>` : ""}
+          ${addBtn(ctx, "team.competencies", "Add a competency")}</div>`
       : `<p class="rb-empty">No competency breakdown.</p>`)
     +
-    (arr(t.keyPersonnel).length
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Key personnel mandates</span><span class="rb-nav-count">${t.keyPersonnel.length}</span></div>
-         <ul class="rb-rows">${t.keyPersonnel.map((k) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
-           <span class="rb-row-text">${esc(typeof k === "string" ? k : k.text || k.name)}</span>
-           <span></span><span></span><span></span></div></li>`).join("")}</ul></div>` : "")
-    +
-    "";   // who is carrying what lives in Plan — this tab is about delivery, not response workload
+    (arr(t.keyPersonnel).length || ctx.edit
+      ? `<div class="rb-group"><div class="rb-group-head"><span>Key personnel mandates</span>
+           <span class="rb-nav-count">${arr(t.keyPersonnel).length}</span></div>
+         <ul class="rb-rows">${arr(t.keyPersonnel).map((k, i) => `
+           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "0px"}">
+             <span${edIn(ctx, typeof k === "string" ? `team.keyPersonnel[${i}]` : `team.keyPersonnel[${i}].text`, "rb-row-text")}>${
+               esc(typeof k === "string" ? k : k.text || k.name)}</span>
+             <span></span><span></span>
+             <span class="rb-meta r">${delBtn(ctx, "team.keyPersonnel", String(i), "@index")}</span>
+           </div></li>`).join("")}</ul>${addBtn(ctx, "team.keyPersonnel", "Add a mandate")}</div>`
+      : "");
 }
 
 /* Collapsed sections are a viewing preference, not content — they belong to the
@@ -1051,7 +1189,7 @@ function flashBtn(btn, label) {
 }
 
 /* ---------- 9. Questions ----------
-   Topic is the organising idea here, and questions get re-filed constantly as
+   Topic is the organizing idea here, and questions get re-filed constantly as
    the Q&A takes shape. In edit mode a row can be dragged between topics, and
    the same move is available from a select — drag is the fast path, not the
    only path, because drag alone is unusable by keyboard. */
@@ -1288,81 +1426,138 @@ function questionsToDocx(p) {
 }
 
 /* ---------- 10. Risks & Signals ---------- */
+/* Risks and signals both go through listBlock now. They used to be two bespoke
+   components — a grid with its own severity column, and a signal list with
+   colored dashes for bullets that appeared nowhere else in the brief. Every
+   section is supposed to be learnable once; a reader should not have to work out
+   a new row shape on arrival. Direction is carried by the group NAME ("Working
+   against us"), which is unambiguous, rather than by a color a reader has to
+   decode. */
 function secRisks(p, d, ctx) {
   const s = p.signals || {};
   const order = { high: 0, med: 1, medium: 1, low: 2 };
+  const norm = (v) => (String(v || "").toLowerCase() === "medium" ? "med" : String(v || "").toLowerCase());
   const risks = arr(p.risks).slice().sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3));
 
-  const group = (title, items, dir) => arr(items).length
-    ? `<div><div class="rb-group-head"><span>${title}</span><span class="rb-nav-count">${items.length}</span></div>
-       <ul class="rb-signal-group" data-dir="${dir}" style="margin-top:8px">${items.map((x) => `<li><span>${
-         esc(typeof x === "string" ? x : x.basis)}${
-         typeof x === "object" && x.source ? ` <span class="rb-src">(${esc(x.source)})</span>` : ""}</span></li>`).join("")}</ul></div>` : "";
+  /* Signals are plain strings or {basis, source} objects depending on the pack's
+     age, and neither carries an id — so they are addressed by position. The one
+     place that matters: an override written against a row that has since moved
+     lands in applyOverrides' orphan branch instead of editing the wrong signal. */
+  const signalRows = (items, dir) => arr(items).map((x, i) => {
+    const text = typeof x === "string" ? x : x.basis;
+    const src = typeof x === "object" && x.source ? x.source : "";
+    const path = typeof x === "string" ? `signals.${dir}[${i}]` : `signals.${dir}[${i}].basis`;
+    return {
+      el: `signal-${dir}-${i}`,
+      html: `<div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "190px" : "150px"}">
+          <span${edIn(ctx, path, "rb-row-text")}>${esc(text)}</span>
+          <span></span><span></span>
+          <span class="rb-meta r">${src ? esc(src) : ""}${delBtn(ctx, `signals.${dir}`, String(i), "@index")}</span>
+        </div>`,
+    };
+  });
+
+  const riskRow = (r) => ({
+    sev: norm(r.severity),
+    el: `risk-${r.id || r.title}`,
+    html: `<div class="rb-row" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "0px"}">
+        <span class="rb-id rb-sev" data-sev="${esc(norm(r.severity))}">${esc(r.severity || "")}</span>
+        <span class="rb-row-text">
+          <span${edIn(ctx, `risks[id=${r.id}].title`, "rb-risk-title")}>${esc(r.title)}</span>
+          ${(has(r.detail) || has(r.mitigation) || has(r.strategicResponse) || ctx.edit)
+            ? `<details class="rb-expand rb-risk-more"${ctx.edit ? " open" : ""}>
+                 <summary>Detail</summary>
+                 <div class="rb-expand-body">
+                   ${has(r.detail) || ctx.edit
+                     ? `<p${edIn(ctx, `risks[id=${r.id}].detail`, "rb-sub rb-small")}>${esc(r.detail || "")}</p>` : ""}
+                   ${/* Both of these were unlabelled blocks of prose, so it was not
+                         obvious that the indented one was a proposal rather than more
+                         description. They are labeled, and named for what they are:
+                         one is what we would DO about it, the other is what we would
+                         WRITE about it. */""}
+                   ${has(r.mitigation) || ctx.edit
+                     ? `<div class="rb-labeled"><span class="rb-microlabel">Proposed mitigation</span>
+                          <p${edIn(ctx, `risks[id=${r.id}].mitigation`, "rb-mitigation")}>${esc(r.mitigation || "")}</p></div>` : ""}
+                   ${has(r.strategicResponse)
+                     ? `<div class="rb-labeled"><span class="rb-microlabel">How we answer it in the proposal</span>
+                          <p${edIn(ctx, `risks[id=${r.id}].strategicResponse`, "rb-mitigation")}>${esc(r.strategicResponse)}</p></div>` : ""}
+                 </div></details>`
+            : ""}
+        </span>
+        <span></span><span></span>
+        <span class="rb-meta r">${ctx.edit ? delBtn(ctx, "risks", r.id) : ""}</span>
+      </div>`,
+  });
 
   return head("Risks & signals") +
     (has(s.winLikelihood)
       ? `<div class="rb-verdict"><p><b>Win likelihood — DRAFT</b><span><b>${esc(s.winLikelihood)}</b></span></p></div>` : "") +
-    `<div class="rb-signals">
-      ${group("Working against us", s.red, "red")}
-      ${group("Working for us", s.green, "green")}
-      ${/* "beige" tested badly — nobody could guess what it meant or which
-            direction it pointed. Renamed to soft signals in schema v4; the old
-            key is still read for packs cached before this deploy. */""}
-      ${group("Soft signals", s.soft || s.beige, "beige")}
-      ${arr(s.unknown).length ? `<p class="rb-small rb-muted">Still unknown: ${esc(s.unknown.join(", "))}</p>` : ""}
-    </div>` +
     (risks.length
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Risks</span><span class="rb-nav-count">${risks.length}</span></div>
-         <div style="margin-top:6px">${risks.map((r) => `<div class="rb-risk" data-sev="${esc(r.severity || "")}" data-el="risk-${esc(r.id || r.title)}">
-            <div class="rb-sev">${esc(r.severity || "")}</div>
-            <div>
-              <div${edIn(ctx, `risks[id=${r.id}].title`, "rb-risk-title")}>${esc(r.title)}</div>
-              ${/* Collapsed by default so the list stays scannable: "the only thing
-                    maybe you could consider doing is having it minimized and then you
-                    have the option to hit like a little plus". In edit mode it opens,
-                    because you cannot edit what you cannot see. */""}
-              ${(has(r.detail) || has(r.mitigation) || has(r.strategicResponse) || ctx.edit)
-                ? `<details class="rb-expand rb-risk-more"${ctx.edit ? " open" : ""}>
-                     <summary><span class="rb-caret" aria-hidden="true"></span>Detail</summary>
-                     <div class="rb-expand-body">
-                       ${has(r.detail) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].detail`, "rb-sub rb-small")}>${esc(r.detail || "")}</p>` : ""}
-                       ${has(r.mitigation) || ctx.edit ? `<p${edIn(ctx, `risks[id=${r.id}].mitigation`, "rb-mitigation")}>${esc(r.mitigation || "")}</p>` : ""}
-                       ${has(r.strategicResponse)
-                         ? `<p${edIn(ctx, `risks[id=${r.id}].strategicResponse`, "rb-strategy")}><b>Our response:</b> ${esc(r.strategicResponse)}</p>`
-                         : ""}
-                     </div></details>`
-                : ""}
-            </div>
-            ${delBtn(ctx, "risks", r.id)}
-          </div>`).join("")}</div></div>` : "") + addBtn(ctx, "risks", "Add a risk");
+      ? listBlock(ctx, "risk:all", "Risks", risks.map(riskRow), { unit: "risk", axis: "sev" })
+      : "") +
+    listBlock(ctx, "sig:red", "Working against us", signalRows(s.red, "red"), { unit: "signal" }) +
+    addBtn(ctx, "signals.red", "Add a signal") +
+    listBlock(ctx, "sig:green", "Working for us", signalRows(s.green, "green"), { unit: "signal" }) +
+    addBtn(ctx, "signals.green", "Add a signal") +
+    /* "beige" tested badly — nobody could guess what it meant or which direction
+       it pointed. Renamed to soft signals in schema v4; the old key is still read
+       for packs cached before that deploy. */
+    listBlock(ctx, "sig:soft", "Soft signals", signalRows(s.soft || s.beige, s.soft ? "soft" : "beige"), { unit: "signal" }) +
+    addBtn(ctx, "signals.soft", "Add a soft signal") +
+    (arr(s.unknown).length
+      ? `<p class="rb-small rb-muted" style="margin-top:var(--rb-s3)">Still unknown: ${esc(s.unknown.join(", "))}</p>` : "") +
+    addBtn(ctx, "risks", "Add a risk");
 }
 
 /* ---------- 11. Decisions & Parking Lot ---------- */
-function secDecisions(p) {
+/* "Decisions" alone was ambiguous — pending, or made? And "parking lot is a dumb
+   name". Placed last in the nav because nobody reaches for it first ("more of an
+   afterthought tab"), but kept, because "everybody needs to have one place where
+   they have equal visibility".
+
+   It took ctx late: the whole tab was read-only, which meant the one place the
+   team was told to record a decision was the one place they could not type. */
+function secDecisions(p, d, ctx) {
   const ds = arr(p.decisions), pl = arr(p.parkingLot), ms = arr(p.meetings);
-  if (!ds.length && !pl.length && !ms.length)
-    return head("Record") +
-      `<p class="rb-empty">Nothing recorded yet.</p>`;
-  const row = (main, meta) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
-    <span class="rb-row-text"><b>${main}</b><br><span class="rb-meta">${meta}</span></span>
-    <span></span><span></span><span></span></div></li>`;
-  /* "Decisions" alone was ambiguous — pending, or made? And "parking lot is a
-     dumb name". Placed last in the nav because nobody reaches for it first
-     ("more of an afterthought tab"), but kept, because "everybody needs to have
-     one place where they have equal visibility". */
+  if (!ds.length && !pl.length && !ms.length && !ctx.edit)
+    return head("Record") + `<p class="rb-empty">Nothing recorded yet.</p>`;
+
+  const row = (coll, x, path, main, meta) => `
+    <li data-el="${coll}-${esc(x.id || "")}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "0px"}">
+      <span class="rb-row-text"><b${edIn(ctx, path, "")}>${main}</b><br><span class="rb-meta">${meta}</span></span>
+      <span></span><span></span>
+      <span class="rb-meta r">${delBtn(ctx, coll, x.id)}</span>
+    </div></li>`;
+
+  const group = (title, n, body, coll, addLabel) =>
+    `<div class="rb-group"><div class="rb-group-head"><span>${title}</span><span class="rb-nav-count">${n}</span></div>
+       <ul class="rb-rows">${body}</ul>${addBtn(ctx, coll, addLabel)}</div>`;
+
   return head("Record") +
-    (ds.length ? `<div class="rb-group"><div class="rb-group-head"><span>Decisions made</span><span class="rb-nav-count">${ds.length}</span></div>
-      <ul class="rb-rows">${ds.map((x) => row(esc(x.text || x.decision),
-        [x.by, fmtDate(x.at), x.meeting, x.binds].filter(has).map(esc).join(" · "))).join("")}</ul></div>` : "") +
-    (pl.length ? `<div class="rb-group"><div class="rb-group-head"><span>Open items</span><span class="rb-nav-count">${pl.length}</span></div>
-      <ul class="rb-rows">${pl.map((x) => row(esc(x.text),
-        [x.by, x.why, x.disposition || "open"].filter(has).map(esc).join(" · "))).join("")}</ul></div>` : "") +
-    (ms.length ? `<div class="rb-group"><div class="rb-group-head"><span>Meetings</span><span class="rb-nav-count">${ms.length}</span></div>
-      <ul class="rb-rows">${ms.map((m) => `<li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:110px;--rb-c3:110px">
-        <span class="rb-row-text"><b>${esc(m.type)}</b></span><span></span>
-        <span class="rb-meta r">${esc(fmtDate(m.date))}</span>
-        <span class="rb-meta r">${arr(m.attendees).length} attended${m.duration ? ` · ${esc(m.duration)}` : ""}</span>
-      </div></li>`).join("")}</ul></div>` : "");
+    (ds.length || ctx.edit
+      ? group("Decisions made", ds.length, ds.map((x) => row("decisions", x,
+          `decisions[id=${x.id}].text`, esc(x.text || x.decision),
+          [x.by, fmtDate(x.at), x.meeting, x.binds].filter(has).map(esc).join(" \u00b7 "))).join(""),
+        "decisions", "Record a decision")
+      : "") +
+    (pl.length || ctx.edit
+      ? group("Open items", pl.length, pl.map((x) => row("parkingLot", x,
+          `parkingLot[id=${x.id}].text`, esc(x.text),
+          [x.by, x.why, x.disposition || "open"].filter(has).map(esc).join(" \u00b7 "))).join(""),
+        "parkingLot", "Park something")
+      : "") +
+    (ms.length || ctx.edit
+      ? group("Meetings", ms.length, ms.map((m) => `
+          <li data-el="meeting-${esc(m.id || "")}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:110px;--rb-c3:${ctx.edit ? "150px" : "110px"}">
+            <span class="rb-row-text"><b${edIn(ctx, `meetings[id=${m.id}].type`, "")}>${esc(m.type)}</b></span><span></span>
+            <span class="rb-meta r">${ctx.edit
+              ? `<input class="rb-in" type="date" data-edit="date" data-coll="meetings" data-id="${esc(m.id)}"
+                        value="${esc(dateVal(m.date))}" aria-label="Date">`
+              : esc(fmtDate(m.date))}</span>
+            <span class="rb-meta r">${arr(m.attendees).length} attended${m.duration ? ` \u00b7 ${esc(m.duration)}` : ""}${
+              delBtn(ctx, "meetings", m.id)}</span>
+          </div></li>`).join(""), "meetings", "Log a meeting")
+      : "");
 }
 
 /* ---------- 12. Document Map ---------- */
@@ -1687,9 +1882,10 @@ export function renderBrief(pack, mount, opts = {}) {
         if (!name) { o.onEdit({ kind: "noop", rerender: true }); return; }
         value = name;
       }
+      const sel = f.dataset.key || "id";
       o.onEdit({
         kind: "set", coll: f.dataset.coll, itemId: f.dataset.id, field,
-        path: `${f.dataset.coll}[id=${f.dataset.id}].${field}`,
+        path: `${f.dataset.coll}[${sel}=${f.dataset.id}].${field}`,
         value: field === "owner" && value === "" ? null : value,
         elementId: `${f.dataset.coll}-${f.dataset.id}.${field}`,
         label: field === "topic" ? `${f.dataset.id} · moved to ${value}` : `${f.dataset.id} · ${field}`,
@@ -1879,6 +2075,7 @@ export function renderBrief(pack, mount, opts = {}) {
       if (del) {
         e.preventDefault();
         o.onEdit({ kind: "remove", coll: del.dataset.del, itemId: del.dataset.id,
+                   itemKey: del.dataset.delkey || "id",
                    elementId: `remove-${del.dataset.del}-${del.dataset.id}`,
                    label: `deleted ${del.dataset.id}`, rerender: true });
         return;

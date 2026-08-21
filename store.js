@@ -199,9 +199,14 @@ export function applyOverrides(pack, overrides) {
   for (const o of overrides.slice().sort((a, b) => String(a.at).localeCompare(String(b.at)))) {
     try {
       if (o.kind === "add") {
-        out[o.collection] = [...(out[o.collection] || []), o.value];
+        const c = coll(out, o.collection, true);
+        c.set([...(c.get() || []), o.value]);
       } else if (o.kind === "remove") {
-        out[o.collection] = (out[o.collection] || []).filter((x) => String(x.id) !== String(o.itemId));
+        const key = o.itemKey || "id";
+        const c = coll(out, o.collection);
+        c.set((c.get() || []).filter((x, i) =>
+          key === "@index" ? String(i) !== String(o.itemId)
+          : String(x && x[key]) !== String(o.itemId)));
       } else {
         setByPath(out, o.path, o.value);
       }
@@ -210,22 +215,54 @@ export function applyOverrides(pack, overrides) {
   return out;
 }
 
+/* A collection reference that works at the root ("requirements") or nested
+   ("team.competencies"). `create` builds the intermediate object so the first
+   add to an empty team does not throw. */
+function coll(root, name, create) {
+  const parts = String(name).split(".");
+  let cur = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (cur[parts[i]] == null) {
+      if (!create) throw new Error("no such collection");
+      cur[parts[i]] = {};
+    }
+    cur = cur[parts[i]];
+  }
+  const last = parts[parts.length - 1];
+  return { get: () => cur[last], set: (v) => { cur[last] = v; } };
+}
+
 function setByPath(obj, path, value) {
-  // supports  requirements[id=R-014].owner  and  submission.date
+  /* Supports
+        requirements[id=R-014].owner     select an object by any field
+        roster[name=Bryan].role          …including one with no id
+        team.keyPersonnel[2]             select by position
+        submission.date                  plain nesting
+     Position selectors are a compromise, used only for arrays of plain strings
+     that carry nothing to match on. They are stable while the list is, and an
+     override pointing at a row that has since moved lands in the orphan branch
+     rather than writing to the wrong row silently. */
   const parts = path.match(/[^.[\]]+(\[[^\]]+\])?/g) || [];
   let cur = obj;
   for (let i = 0; i < parts.length; i++) {
-    const m = /^([^[]+)(?:\[([^=\]]+)=([^\]]+)\])?$/.exec(parts[i]);
+    const m = /^([^[]+)(?:\[(?:([^=\]]+)=([^\]]+)|(\d+))\])?$/.exec(parts[i]);
     if (!m) throw new Error("bad path");
-    const [, key, selKey, selVal] = m;
+    const [, key, selKey, selVal, idx] = m;
     let next = cur[key];
-    if (selKey) {
+    if (idx !== undefined) {
       if (!Array.isArray(next)) throw new Error("bad path");
-      next = next.find((x) => String(x[selKey]) === selVal);
+      const n = Number(idx);
+      if (n >= next.length) throw new Error("orphan");
+      if (i === parts.length - 1) { next[n] = value; return; }
+      next = next[n];
+    } else if (selKey) {
+      if (!Array.isArray(next)) throw new Error("bad path");
+      next = next.find((x) => String(x && x[selKey]) === selVal);
       if (!next) throw new Error("orphan");
     }
     if (i === parts.length - 1 && !selKey) { cur[key] = value; return; }
     if (i === parts.length - 1 && selKey) { Object.assign(next, value); return; }
+    if (next === undefined || next === null) throw new Error("bad path");
     cur = next;
   }
 }

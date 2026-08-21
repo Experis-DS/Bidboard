@@ -59,7 +59,7 @@ const STAGE_LABEL = {
    GA4, and only if a measurement ID is configured. With the field empty no
    Google script is requested at all, which is the state the site ships in.
    Client names are the sensitive part of a URL here, so page_view is sent with
-   a normalised path — "/brief" not "/b/allianz-partners". You get section and
+   a normalized path — "/brief" not "/b/allianz-partners". You get section and
    funnel data; GA never receives who Experis is bidding for. */
 function initAnalytics() {
   const id = CONFIG.analytics?.measurementId?.trim();
@@ -120,8 +120,8 @@ function paintConnection() {
      actually need from this corner is "am I looking at the build I just pushed?",
      which is unanswerable on a static site with no other stamp.
 
-     The mode is not lost, it moves to the dot: green shared, red offline, grey
-     local-only. Colour alone is never the only carrier — the tooltip still says
+     The mode is not lost, it moves to the dot: green shared, red offline, gray
+     local-only. Color alone is never the only carrier — the tooltip still says
      it in words, and the version is prefixed for screen readers. */
   const mode = !navigator.onLine ? "offline" : store.mode;
   const label = { shared: "Shared", local: "Local only", offline: "Offline" }[mode];
@@ -704,14 +704,41 @@ const NEW_ITEM = {
   questions:   (p) => ({ id: nextId(p, "questions", "Q"), topic: "General", text: "New question" }),
   risks:       (p) => ({ id: nextId(p, "risks", "K"), severity: "med", title: "New risk", detail: "", mitigation: "" }),
   rules:       (p) => ({ id: nextId(p, "rules", "C"), label: "New rule", checked: false, mandatory: false }),
+  requirements:(p) => ({ id: nextId(p, "requirements", "R"), text: "New requirement", theme: "Ungrouped", owner: null, status: "open" }),
+  decisions:   (p) => ({ id: nextId(p, "decisions", "D"), text: "New decision", by: "", at: new Date().toISOString().slice(0, 10) }),
+  parkingLot:  (p) => ({ id: nextId(p, "parkingLot", "P"), text: "New parked item" }),
+  /* Keyed by name rather than id, because that is what the pack carries and
+     inventing ids for these on import would break /DRAFT's read of the same
+     collections. applyOverrides removes by whichever field the delete button
+     names, so no id is needed. */
+  roster:      () => ({ name: "New person", role: "" }),
+  meetings:    (p) => ({ id: nextId(p, "meetings", "M"), type: "call", date: new Date().toISOString().slice(0, 10), attendees: [] }),
+  /* Nested collections. The competency name doubles as its key, so a new row
+     needs a name nobody else has — "New competency" twice would make both rows
+     un-editable, since a name selector would match the first every time. */
+  "team.competencies": (p) => ({
+    name: `New competency ${((p.team && p.team.competencies) || []).length + 1}`,
+    hours: 0, hoursAi: 0, requirementIds: [],
+  }),
+  "team.keyPersonnel": () => "New mandate",
+  "signals.red":   () => ({ basis: "New signal", source: "" }),
+  "signals.green": () => ({ basis: "New signal", source: "" }),
+  "signals.soft":  () => ({ basis: "New signal", source: "" }),
+  "scorecard.criteria":        (p) => ({ name: `New criterion ${arr2(p, "scorecard", "criteria").length + 1}`, weight: 0 }),
+  "evaluation.criteria":       (p) => ({ name: `New criterion ${arr2(p, "evaluation", "criteria").length + 1}`, weight: 0 }),
+  "scorecard.successCriteria":  () => "New success criterion",
+  "evaluation.successCriteria": () => "New success criterion",
 };
+
+/* NEW_ITEM sometimes needs to count a nested collection to name the next row. */
+const arr2 = (p, a, b) => ((p && p[a] && p[a][b]) || []);
 
 /* Re-render in the mode the reader is ACTUALLY in. This used to hard-code
    "edit", which was harmless while every edit came from an edit-mode control —
    and wrong the moment a read-mode checkbox could write, because ticking one box
    flipped the whole brief into edit mode underneath the person. */
 async function applyEdit(change) {
-  // A cancelled "New topic…" prompt: nothing to record, but the select is
+  // A canceled "New topic…" prompt: nothing to record, but the select is
   // showing __new and has to be put back.
   if (change.kind === "noop") {
     if (change.rerender !== false && BRIEF) BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
@@ -757,7 +784,11 @@ async function applyEdit(change) {
   let entry;
   if (change.kind === "add") {
     const value = (NEW_ITEM[change.coll] || (() => ({ id: nextId(BRIEF.pack, change.coll, "X") })))(BRIEF.pack);
-    entry = { id: `add-${change.coll}-${value.id}`, kind: "add", collection: change.coll, value, editor: who, at };
+    /* The override id has to be unique per added row. `value.id` is undefined for
+       the collections keyed by name and for plain-string rows, so a second add
+       would overwrite the first and the row would never appear. */
+    const tag = (value && (value.id || value.name)) || `${Date.now().toString(36)}`;
+    entry = { id: `add-${change.coll}-${tag}`, kind: "add", collection: change.coll, value, editor: who, at };
   } else if (change.kind === "remove") {
     /* Deleting a row that an override added: drop the "add" instead of layering
        a "remove" on top of it. Both would exist, and applyOverrides orders by
@@ -783,7 +814,8 @@ async function applyEdit(change) {
       flashSaved();
       return;
     }
-    entry = { id: `remove-${change.coll}-${change.itemId}`, kind: "remove", collection: change.coll, itemId: change.itemId, editor: who, at };
+    entry = { id: `remove-${change.coll}-${change.itemId}`, kind: "remove", collection: change.coll,
+              itemId: change.itemId, itemKey: change.itemKey || "id", editor: who, at };
   } else {
     entry = { id: change.elementId, kind: "set", path: change.path, value: change.value, editor: who, at };
   }
@@ -991,7 +1023,7 @@ async function openRestore(briefId) {
   };
 }
 
-/* Resolve only documents that actually travelled with the bundle. Anything else
+/* Resolve only documents that actually traveled with the bundle. Anything else
    returns nothing and the renderer prints the row as plain text — a link that
    404s is worse than no link. */
 /* Documents live in the importing browser only — there is no Cloud Storage in

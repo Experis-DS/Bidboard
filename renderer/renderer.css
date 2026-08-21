@@ -7,7 +7,7 @@
 
    The discipline, in one line: monochrome + ONE accent, red only
    for an imminent deadline, and structure carried by weight,
-   measure and hairlines rather than by colour.
+   measure and hairlines rather than by color.
 
    v1.1 — visual craft pass. One type scale, one row grid, one
    chip system, controlled measure, real vertical rhythm.
@@ -121,7 +121,7 @@
 .rb-measure { max-width: var(--rb-measure); }
 
 /* section header: label + hairline that spans the column.
-   Structure from rule + weight, not from a wall of grey caps. */
+   Structure from rule + weight, not from a wall of gray caps. */
 .rb-zone-head {
   display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: center;
   font-size: var(--rb-t-micro); font-weight: 750; letter-spacing: .16em; text-transform: uppercase;
@@ -362,8 +362,8 @@
   .rb-meta.r { text-align: left; }
 }
 
-/* status: a dot and a word, in a fixed column. Not a coloured pill per state —
-   five pill colours is a legend, and a snapshot that needs a legend has failed. */
+/* status: a dot and a word, in a fixed column. Not a colored pill per state —
+   five pill colors is a legend, and a snapshot that needs a legend has failed. */
 .rb-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--rb-gray); }
 .rb-status::before {
   content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none;
@@ -814,14 +814,20 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
   display: inline-flex; align-items: center; gap: 6px;
 }
 .rb-collapse:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 3px; border-radius: 4px; }
-.rb-caret {
-  width: 0; height: 0; flex: none;
-  border-left: 5px solid currentColor;
-  border-top: 4px solid transparent; border-bottom: 4px solid transparent;
-  transition: transform .14s ease; opacity: .55;
+/* One chevron, drawn from CSS, shared by every disclosure in the brief:
+   expanders, folds and collapsible group headers. Previously the expander drew a
+   chevron via ::before while folds and collapse buttons rendered a solid
+   triangle from a .rb-caret span — two shapes for one idea, and the risk row
+   carried both at once. */
+.rb-collapse::before,
+.rb-fold > summary::before {
+  content: ""; width: 5px; height: 5px; flex: none;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg) translate(-1px, -1px);
+  transition: transform .15s ease; opacity: .7;
 }
-.rb-collapse[aria-expanded="true"] .rb-caret,
-details[open] > summary .rb-caret { transform: rotate(90deg); }
+.rb-collapse[aria-expanded="true"]::before,
+.rb-fold[open] > summary::before { transform: rotate(45deg) translate(-1px, -1px); }
 
 .rb-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 4px; }
 /* Scoped `.rb .rb-chip-f`, not `.rb-chip-f`. The reset at the top of this file
@@ -852,7 +858,7 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
 .rb-list[data-filter="mine"] .rb-rows > li { display: none; }
 .rb-list[data-filter="mine"][data-mine] .rb-rows > li[data-owner] { display: revert; }
 
-/* Colour is rationed: the deadline red, and this three-state token. Two
+/* Color is rationed: the deadline red, and this three-state token. Two
    participants asked for a red/amber/green scale; this is the concession, and
    it means the same thing in every list. Anything more is the priority rainbow. */
 .rb-status[data-s="atRisk"] { color: var(--rb-bad, #b03a2e); font-weight: 600; }
@@ -901,7 +907,7 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
    ============================================================
    The house rule is monochrome plus ONE accent, red reserved for an imminent
    deadline. Date kinds take a deliberate, narrow exception: a second carrier
-   (teal) marks programme dates, and it appears in exactly three places — the
+   (teal) marks program dates, and it appears in exactly three places — the
    timeline dot, the legend swatch and the dot in the countdown fold. It is
    never the only signal, because the filter chips mean you normally see one
    kind at a time and the label always says which.
@@ -921,13 +927,13 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
 }
 .rb-key-i[data-kind="program"] > i { background: var(--rb-prog); box-shadow: 0 0 0 3px var(--rb-prog-soft); }
 
-/* ---- timeline, coloured by kind ---- */
+/* ---- timeline, colored by kind ---- */
 .rb-timeline > li[data-kind="response"]::before { border-color: var(--rb-accent); }
 .rb-timeline > li[data-kind="program"]::before  { border-color: var(--rb-prog); }
 .rb-timeline > li.is-past::before { border-color: var(--rb-line) !important; }
 
 /* The TODAY marker belongs to whichever kind is on screen. Showing the next
-   response date AND the next programme date at once puts two "today" labels on
+   response date AND the next program date at once puts two "today" labels on
    one rail, which reads as a rendering fault rather than as two clocks. In
    "both", response wins: it is the one that can lose you the bid. */
 .rb-timewrap[data-kind="response"] .rb-timeline > li[data-next="response"],
@@ -1028,3 +1034,48 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
 
 /* The tick sits inline ahead of the label on rows with no id column. */
 .rb-row-text > .rb-tick { margin-right: 9px; vertical-align: 0; }
+
+/* ============================================================
+   V3.1 — one summary marker, severity filtering, labeled prose
+   ============================================================ */
+
+/* Native disclosure markers off for every summary in the brief, once. Each fold
+   class used to suppress this separately, which is a bug waiting on the next
+   fold class. (This was NOT the cause of the double caret on risks — that was
+   two of our own carets. Kept anyway, because the per-component opt-out was
+   real.) */
+.rb summary { list-style: none; }
+.rb summary::-webkit-details-marker { display: none; }
+.rb summary::marker { content: ""; }
+
+/* Severity as a filter axis on the shared list component. Same chips, same
+   CSS flip — no re-render, so nothing in edit mode loses focus. */
+.rb-list[data-filter="high"] .rb-rows > li:not([data-sev="high"]) { display: none; }
+.rb-list[data-filter="med"]  .rb-rows > li:not([data-sev="med"])  { display: none; }
+.rb-list[data-filter="low"]  .rb-rows > li:not([data-sev="low"])  { display: none; }
+
+/* Severity sits in the id column, so a risk row lines up with every other row
+   in the brief instead of using a grid of its own. */
+.rb-sev {
+  text-transform: uppercase; letter-spacing: .08em; font-weight: 700;
+  font-size: var(--rb-t-micro); color: var(--rb-gray-2);
+}
+.rb-sev[data-sev="high"] { color: var(--rb-urgent); }
+
+/* A block of prose with no label reads as more description. These two are
+   proposals, and the label is what says so. */
+.rb-labeled { margin-top: 10px; }
+.rb-microlabel {
+  display: block; font-size: var(--rb-t-micro); font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--rb-gray-2);
+  margin-bottom: 3px;
+}
+.rb-labeled > .rb-mitigation { margin-top: 0; }
+
+/* The colored dashes are gone: signals are rows like everything else, and the
+   group name says which direction they point. */
+.rb-signals, .rb-signal-group { all: unset; }
+
+/* ---- numeric input, and the analog/AI hour pair ---- */
+.rb-in-num { width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
+.rb-hourpair { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
