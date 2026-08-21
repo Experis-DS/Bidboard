@@ -569,13 +569,20 @@ async function screenBrief(briefId, section) {
   BRIEF = { briefId, idx, pack, base: await getPackBase(briefId), api: null, editing: false, unsub: null, pendingRemote: null };
 
   const opts = {
-    section: section || "snapshot",
+    /* Land where you left off. A response lead lives in Our readiness for three
+       weeks and was made to walk through TLDR every single time; a first-time
+       reader still gets TLDR, because there is nothing remembered yet. Per
+       pursuit and per person, so it is a viewing preference rather than content. */
+    section: section || lastSection(briefId) || "snapshot",
     headerHeight: 60,
     /* Who is reading. Only used to offer the "Mine" filter chip — with no name
        the chip is not offered rather than shown broken. Read without prompting:
        asking for a name just to view a list would be the wrong trade. */
     me: localStorage.getItem("hub.editor") || "",
-    onNavigate: (id) => history.replaceState(null, "", `#/b/${briefId}/${id}`),
+    onNavigate: (id) => {
+      history.replaceState(null, "", `#/b/${briefId}/${id}`);
+      try { localStorage.setItem(`hub.at.${briefId}`, id); } catch {}
+    },
     onDerive: (m) => {
       /* The Library card reads these. Persisting them here means the counts are
          refreshed by the act of someone opening the brief — self-healing for
@@ -995,6 +1002,10 @@ async function openRestore(briefId) {
    downloading every attached PDF before the brief paints, which on a pursuit
    with a 30 MB document set is a blank screen for half a minute. The rest
    resolve on click, once, and are cached from then on. */
+const lastSection = (briefId) => {
+  try { return localStorage.getItem(`hub.at.${briefId}`) || ""; } catch { return ""; }
+};
+
 async function resolveAssetUrls(idx, pack) {
   const out = {};
   for (const doc of pack.documents || []) {

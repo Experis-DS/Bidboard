@@ -889,7 +889,10 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
 
 /* Documents sits outside the eight — it is a launcher, not one of the sections,
    so it is separated at the foot of the nav rather than counted among them. */
-.rb-nav-chrome { margin-top: auto; border-top: 1px solid var(--rb-line); padding-top: 10px !important; }
+/* margin-top:auto only works when the nav is taller than its content. With
+   group headings it usually is not, so Documents was landing flush under the
+   last Submit item and reading as part of that group. */
+.rb-nav-chrome { margin-top: 26px; border-top: 1px solid var(--rb-line); padding-top: 14px !important; }
 .rb-nav-chrome span:first-child { color: var(--rb-gray-2); }
 .rb-nav-chrome:hover span:first-child { color: var(--rb-ink); }
 
@@ -996,3 +999,32 @@ details[open] > summary .rb-caret { transform: rotate(90deg); }
   align-self: center; margin-left: 4px;
   font-size: var(--rb-t-small); color: var(--rb-accent);
 }
+
+/* ============================================================
+   V3 — grouped nav, one clock per view, your own work
+   ============================================================ */
+
+/* Group headings label INTENTS, not states. There is deliberately no active,
+   current, complete or ahead styling and nothing in the pack may drive their
+   appearance — that is what turned the old six-step stepper into a lie. */
+.rb-nav-group {
+  font-size: var(--rb-t-micro); font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--rb-accent);
+  padding: 20px 0 6px; margin-top: 2px;
+}
+.rb-nav-group:first-child { margin-top: 0; padding-top: 8px; }
+
+/* Your own work, from TLDR. One line, and only when there is something in it. */
+.rb-mine {
+  display: flex; align-items: center; gap: 8px;
+  margin: 14px 0 var(--rb-s3); padding: 11px 16px;
+  border: 1px solid var(--rb-accent); border-radius: 3px;
+  background: var(--rb-accent-soft); color: var(--rb-accent);
+  font-size: var(--rb-t-small); text-decoration: none;
+}
+.rb-mine:hover { background: var(--rb-bg); }
+.rb-mine-late { color: var(--rb-urgent); font-weight: 600; }
+.rb-mine-go { margin-left: auto; }
+
+/* The tick sits inline ahead of the label on rows with no id column. */
+.rb-row-text > .rb-tick { margin-right: 9px; vertical-align: 0; }

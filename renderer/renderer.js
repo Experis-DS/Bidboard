@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "2.2.0";
+export const RENDERER_VERSION = "3.0.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -198,19 +198,40 @@ function deriveCoverage(pack) {
    #/b/<pursuit>/requirements links are already shared in Teams threads. New
    composite sections take the id of their dominant half and the rest resolve
    through ALIASES in show(). A tidier id set is not worth a dead link. */
+const GROUPS = ["Understand", "Decide", "Build", "Submit"];
+
 const SECTIONS = [
+  /* TLDR is ungrouped on purpose: it is the only screen that answers all four
+     intents at once, and it is the one thing everybody reads. */
   { id: "snapshot",     label: "TLDR",                 render: secScope },
-  { id: "plan",         label: "Readiness",            render: secPlan,
+
+  /* Delivery scope keeps the `compliance` id. #/b/<pursuit>/compliance links are
+     already shared in Teams threads and they were pointing at requirements, so
+     the id follows the content rather than the label. */
+  { id: "compliance",   label: "Delivery scope",       render: secRequirementsTab, group: "Understand",
+    when: (p) => has(p.requirements) || arr(p.dates).some((x) => dateKind(x) === "program"),
+    count: (p) => arr(p.requirements).length || null },
+  { id: "rules",        label: "Rules of the bid",     render: secRulesTab, group: "Understand",
+    when: (p) => has(p.rules),
+    count: (p) => arr(p.rules).length || null },
+
+  { id: "risks",        label: "Risks & signals",      render: secRisks, group: "Decide",
+    when: (p) => has(p.risks) || has(p.signals) },
+  { id: "team",         label: "Effort & team",        render: secTeam, group: "Decide",
+    when: (p) => has(p.team) || has(p.roster) },
+  { id: "evaluation",   label: "Scoring & fit",        render: secEvaluation, group: "Decide",
+    when: (p) => has(p.scorecard) || has(p.evaluation) },
+
+  { id: "plan",         label: "Our readiness",        render: secPlan, group: "Build",
     when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
     count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
-  { id: "compliance",   label: "Rules & Requirements", render: secCompliance,
-    when: (p) => has(p.rules) || has(p.requirements),
-    count: (p) => (arr(p.rules).length + arr(p.requirements).length) || null },
-  { id: "evaluation",   label: "Evaluation Scorecard", render: secEvaluation,   when: (p) => has(p.scorecard) || has(p.evaluation) },
-  { id: "team",         label: "Team & Burden",        render: secTeam,         when: (p) => has(p.team) || has(p.roster) },
-  { id: "questions",    label: "Questions",            render: secQuestions,    when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
-  { id: "risks",        label: "Risks & Signals",      render: secRisks,        when: (p) => has(p.risks) || has(p.signals) },
-  { id: "decisions",    label: "Record",               render: secDecisions,    when: (p) => has(p.decisions) || has(p.parkingLot) || has(p.meetings), count: (p) => arr(p.decisions).length || null },
+  { id: "questions",    label: "Questions to client",  render: secQuestions, group: "Build",
+    when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
+
+  { id: "preflight",    label: "Pre-flight",           render: secPreflight, group: "Submit",
+    when: (p) => has(p.rules) || has(p.submission) },
+  { id: "decisions",    label: "Record",               render: secDecisions, group: "Submit",
+    when: (p) => has(p.decisions) || has(p.parkingLot) || has(p.meetings), count: (p) => arr(p.decisions).length || null },
   /* Documents is a LAUNCHER, not a page: the way it gets used is "bam, bam,
      bam, you can get the docs you need". chrome:true keeps it out of the nav
      and reachable from the header, which removes a tab and makes it available
@@ -223,7 +244,7 @@ const SECTIONS = [
 let BASE_ROUTE = "#";
 const goHref = (id) => (BASE_ROUTE === "#" ? "#" : `${BASE_ROUTE}/${id}`);
 
-const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "plan", rules: "compliance", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
+const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "plan", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
 
 /* ---------- date kinds ----------
    Two clocks were being drawn on one rail and read as one sequence. A RESPONSE
@@ -255,6 +276,16 @@ function dateKind(d) {
 }
 
 /* ---------- 1. Snapshot ---------- */
+
+function mineStrip(p, ctx) {
+  if (!ctx.me) return "";
+  const mine = arr(p.actionItems).filter((i) => i.owner === ctx.me && i.status !== "done");
+  if (!mine.length) return "";
+  const late = mine.filter((i) => daysFromNow(i.due) < 0).length;
+  return `<a class="rb-mine" href="${goHref("plan")}" data-goto="plan" data-el="action-${esc(mine[0].id)}">
+    <b>${plural(mine.length, "item")}</b> waiting on you${late ? ` \u00b7 <span class="rb-mine-late">${late} late</span>` : ""}
+    <span class="rb-mine-go" aria-hidden="true">\u2192</span></a>`;
+}
 
 function secSnapshot(p, d, ctx) {
   const subDays = p.submission ? daysFromNow(p.submission.date) : null;
@@ -328,6 +359,7 @@ function secSnapshot(p, d, ctx) {
       </div>
 
       ${deadline}
+      ${mineStrip(p, ctx)}
       ${askParas ? `<div class="rb-zone" style="margin-top:0">${askParas}</div>` : ""}
 
       ${verdict}
@@ -399,9 +431,9 @@ function tileCountdown(c) {
     <div class="rb-metric-note">${note}</div>
     <details class="rb-expand"><summary>Milestones and slack</summary>
       <div class="rb-expand-body">
-        <ul class="rb-rows">${c.milestones.map((m) => `
+        <ul class="rb-rows">${c.milestones.filter((m) => m.kind === "response").map((m) => `
           <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:96px;--rb-c3:82px">
-            <span class="rb-row-text"><i class="rb-kdot" data-kind="${m.kind || "response"}"></i>${esc(m.label)}</span><span></span>
+            <span class="rb-row-text">${esc(m.label)}</span><span></span>
             <span class="rb-meta r">${esc(fmtDate(m.date))}</span>
             <span class="rb-meta r ${m.days < 0 ? "is-late" : ""}">${m.days < 0 ? `${Math.abs(m.days)}d ago` : `${m.days}d slack`}</span>
           </div></li>`).join("")}</ul>
@@ -610,7 +642,11 @@ function secScope(p, d, ctx) {
    screen and making it a dashboard instead of a read-out. */
 function secPlan(p, d, ctx) {
   const items = arr(p.actionItems);
-  const dates = secDates(p, d, ctx, { bare: true });
+  /* Response dates only. Programme dates moved to Delivery scope, where they
+     describe the engagement rather than pretending to be slack on our clock. */
+  const resp = d.criticalPath.ok
+    ? d.criticalPath.milestones.filter((m) => m.kind === "response")
+    : [];
   const timelineOpen = !items.length;
   const r = d.readiness;
 
@@ -624,7 +660,7 @@ function secPlan(p, d, ctx) {
     ? `<p class="rb-small rb-muted" style="margin-top:10px">Nothing outstanding — every requirement is owned, every item is closed, and the client has answered.</p>`
     : "";
 
-  return head("Readiness") +
+  return head("Our readiness") +
     `<div class="rb-zone rb-pulse" style="margin-top:0">
        ${tileReadiness(d.readiness)}
        ${tileCountdown(d.criticalPath)}
@@ -637,18 +673,46 @@ function secPlan(p, d, ctx) {
        function is kept: it is the right instrument once themes are populated
        enough to have a shape, and Team is where it will land if it returns. */
     secChecklist(p, d, ctx) +
-    `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
-       <summary><span class="rb-caret" aria-hidden="true"></span>Key dates</summary>
-       <div class="rb-fold-body">${dates}</div>
-     </details>`;
+    (resp.length
+      ? `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
+           <summary><span class="rb-caret" aria-hidden="true"></span>Our clock</summary>
+           <div class="rb-fold-body">${timeline(resp, "response")}</div>
+         </details>`
+      : "");
 }
 
-/* Compliance: submission rules plus client requirements. Asked to describe the
-   difference between the two as separate tabs, readers could not: "are they the
-   same thing? Are we looking at two different things here?" */
-function secCompliance(p, d, ctx) {
-  return head("Rules & Requirements") +
-    secRules(p, d, ctx) + secRequirements(p, d, ctx);
+/* Delivery scope — what we would be on the hook for if we win, and over what
+   timeline. The programme dates live HERE and not in readiness: they are dates
+   the client tells us about, not dates we hit, and on one rail with our
+   submission clock a milestone fourteen months out reads as slack on something
+   due Friday.
+
+   Note the tab is NOT called "the ask". The ask is two sentences of prose on
+   TLDR and appears exactly once; this is the itemised scope. Naming both "the
+   ask" is the collision that got a fold deleted from TLDR already. */
+function secRequirementsTab(p, d, ctx) {
+  const prog = d.criticalPath.ok
+    ? d.criticalPath.milestones.filter((m) => m.kind === "program")
+    : [];
+  const n = arr(p.requirements).length;
+  return head("Delivery scope", n ? `${plural(n, "requirement")} — the scope we are committing to` : "") +
+    secRequirements(p, d, ctx) +
+    (prog.length
+      ? `<details class="rb-fold" data-el="programme">
+           <summary><span class="rb-caret" aria-hidden="true"></span>Their programme</summary>
+           <div class="rb-fold-body">${timeline(prog, "program")}</div>
+         </details>`
+      : "");
+}
+
+/* Rules of the bid — the constraints to read before anyone writes. Read-only:
+   a rule is not a task, and the confirmation pass over these lives in
+   Pre-flight, where ticking one means something. */
+function secRulesTab(p, d, ctx) {
+  const n = arr(p.rules).length;
+  return head("Rules of the bid",
+    `${plural(n, "rule")} governing the submission — miss one and the bid is discarded unread`) +
+    secRules(p, d, ctx);
 }
 
 /* ---------- 2. Action Checklist ---------- */
@@ -706,75 +770,104 @@ function secChecklist(p, d, ctx) {
    duplication this restructure removed. */
 
 /* ---------- 4. Key Dates ---------- */
-function secDates(p, d, ctx, opts = {}) {
-  /* The six-step stage stepper was REMOVED, not restyled.
-     It only ever moved when a human remembered to move it, and a pursuit
-     showing "Drafting" three weeks after it was submitted is worse than showing
-     nothing — it teaches people the board is stale. Everything here is derived
-     from dates in the documents instead, so it cannot rot. The one thing the
-     stepper was genuinely good for — "where are we today" — is the TODAY marker
-     and the muted past dates below. */
-  const title = opts.bare ? "" : subhead("Key dates");
-  const rows = d.criticalPath.ok ? d.criticalPath.milestones : [];
-  if (!rows.length) return title + `<p class="rb-empty">No dates captured.</p>`;
+/* ONE timeline component, ONE kind per call.
+   The kind filter chips and the two-colour key were the right answer while both
+   clocks shared a rail; splitting the clocks across two tabs makes both
+   redundant, and a legend explaining a distinction that is not on screen is
+   exactly the explanatory helper text we keep removing. Colour stays — it is now
+   the only thing carrying which clock you are looking at.
 
-  const nResp = rows.filter((m) => m.kind === "response").length;
-  const nProg = rows.filter((m) => m.kind === "program").length;
-  /* Default to whichever kind the pursuit actually has. Both present: response,
-     because that is the clock that can lose you the bid. */
-  const start = nResp ? "response" : "program";
-  const both = nResp && nProg;
-
-  const chip = (id, label, count) => count === 0 && id !== "all" ? "" :
-    `<button type="button" class="rb-chip-f" data-tchip="${id}"
-       aria-pressed="${String(id === start)}">${label}<span class="rb-chip-n">${count}</span></button>`;
-
-  /* The key is only earned when there are two things to tell apart. On a pursuit
-     with response dates only, a legend explaining a distinction that is not on
-     screen is the explanatory helper text we spent a pass removing. */
-  const key = both
-    ? `<div class="rb-key" aria-hidden="true">
-         <span class="rb-key-i" data-kind="response"><i></i>Response — ours to hit</span>
-         <span class="rb-key-i" data-kind="program"><i></i>Program — the client's own dates</span>
-       </div>`
-    : "";
-
-  const firstUpcoming = (kind) => rows.findIndex((m) => m.days >= 0 && m.kind === kind);
-  const nextResp = firstUpcoming("response"), nextProg = firstUpcoming("program");
-  const nextAttr = (i) => i === nextResp ? ' data-next="response"' : i === nextProg ? ' data-next="program"' : "";
-
-  return title +
-    (both
-      ? `<div class="rb-chips" role="group" aria-label="Filter key dates by kind">
-           ${chip("response", "Response", nResp)}${chip("program", "Program", nProg)}${chip("all", "Both", rows.length)}
-         </div>`
-      : "") +
-    key +
-    `<div class="rb-timewrap" data-kind="${start}">
-      <ul class="rb-timeline">${rows.map((m, i) => `
-        <li data-kind="${m.kind}"${nextAttr(i)} class="${m.days < 0 ? "is-past" : ""}" data-el="date-${esc(m.id || i)}">
-          <div class="rb-tl-date">${esc(m.id === "submission" ? fmtDeadline(m.date) : fmtDate(m.date))} \u00b7 ${
-            m.days < 0 ? `${Math.abs(m.days)} days ago` : `in ${plural(m.days, "day")}`}</div>
-          <div class="rb-tl-title">${esc(m.label)}</div>
-          ${has(m.ourAction) && m.ourAction !== "\u2014" ? `<div class="rb-sub rb-small">We must: ${esc(m.ourAction)}</div>` : ""}
-        </li>`).join("")}</ul>
-      <p class="rb-empty rb-filter-empty" hidden>Nothing matches that filter.</p>
-    </div>`;
+   The six-step stage stepper is still gone and still not coming back. It moved
+   only when a human remembered to move it, and a pursuit reading "Drafting"
+   three weeks after submission teaches people the board is stale. What the
+   stepper was genuinely good for — "where are we today" — is the TODAY marker
+   and the muted past rows here, both derived from dates, so neither can rot. */
+function timeline(rows, kind) {
+  if (!rows.length) return `<p class="rb-empty">No dates captured.</p>`;
+  const next = rows.findIndex((m) => m.days >= 0);
+  return `<div class="rb-timewrap" data-kind="${kind}">
+    <ul class="rb-timeline">${rows.map((m, i) => `
+      <li data-kind="${m.kind || kind}"${i === next && kind === "response" ? ` data-next="response"` : ""}
+          class="${m.days < 0 ? "is-past" : ""}" data-el="date-${esc(m.id || i)}">
+        <div class="rb-tl-date">${esc(m.id === "submission" ? fmtDeadline(m.date) : fmtDate(m.date))} \u00b7 ${
+          m.days < 0 ? `${Math.abs(m.days)} days ago` : `in ${plural(m.days, "day")}`}</div>
+        <div class="rb-tl-title">${esc(m.label)}</div>
+        ${has(m.ourAction) && m.ourAction !== "\u2014" ? `<div class="rb-sub rb-small">We must: ${esc(m.ourAction)}</div>` : ""}
+      </li>`).join("")}</ul>
+  </div>`;
 }
 
 /* ---------- 5. Rules & Constraints ---------- */
 function secRules(p, d, ctx) {
   const rules = arr(p.rules);
   if (!rules.length) return "";
-  return subhead("To bid at all, we must obey this",
-    `${plural(rules.length, "rule")} governing the submission — miss one and the bid is discarded unread`) +
-    `<ul class="rb-rows">${rules.map((r) => `
+  return `<ul class="rb-rows">${rules.map((r) => `
       <li data-el="rule-${esc(r.id)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:170px">
         <span${edIn(ctx, `rules[id=${r.id}].label`, "rb-row-text")}>${esc(r.label)}</span>
         <span></span>
         <span></span>
         <span class="rb-meta r">${ctx.edit ? delBtn(ctx, "rules", r.id) : srcLink(r.source, ctx)}</span>
       </div></li>`).join("")}</ul>` + addBtn(ctx, "rules", "Add a rule");
+}
+
+function secPreflight(p, d, ctx) {
+  const sub = p.submission || {};
+  const rules = arr(p.rules);
+  const done = rules.filter((r) => r.checked).length;
+  const openItems = arr(p.actionItems).filter((i) => i.status !== "done");
+  const risky = arr(p.requirements).filter((r) => rowStatus(r, { mandatoryMatters: true }) === "atRisk");
+  const docs = arr(p.documents);
+  const days = sub.date ? daysFromNow(sub.date) : null;
+
+  const mech = [
+    ["Deadline", sub.date ? fmtDeadline(sub.date) : ""],
+    ["Format", sub.format],
+    ["Delivered by", sub.method],
+  ].filter((x) => has(x[1]));
+
+  return head("Pre-flight") +
+    (days !== null
+      ? `<div class="rb-deadline ${days <= 2 && days >= 0 ? "is-urgent" : ""} ${days < 0 ? "is-past" : ""}">
+           <span class="rb-deadline-label">${days < 0 ? "Closed" : days === 0 ? "Due today" : `${plural(days, "day")} left`}</span>
+           <span class="rb-deadline-value">${esc(fmtDeadline(sub.date))}</span>
+         </div>`
+      : "") +
+    (mech.length
+      ? `<ul class="rb-rows" style="margin-top:var(--rb-s4)">${mech.map(([k, v]) => `
+          <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:0px">
+            <span class="rb-row-text"><b>${esc(k)}</b> \u00b7 ${esc(v)}</span>
+            <span></span><span></span><span></span></div></li>`).join("")}</ul>`
+      : "") +
+
+    (rules.length
+      ? subhead("Confirm every rule", `${done} of ${rules.length} confirmed`) +
+        `<ul class="rb-rows">${rules.map((r) => `
+          <li data-el="pf-${esc(r.id)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:150px">
+            <span class="rb-row-text ${r.checked ? "rb-muted" : ""}">${
+              tick(ctx, "rules", r.id, !!r.checked, r.label, "checked")}${esc(r.label)}</span>
+            <span></span><span></span>
+            <span class="rb-meta r">${srcLink(r.source, ctx)}</span>
+          </div></li>`).join("")}</ul>`
+      : "") +
+
+    ((openItems.length || risky.length)
+      ? subhead("Still open") +
+        `<ul class="rb-blockers" style="margin-bottom:var(--rb-s4)">${[
+          openItems.length ? `<li><a href="${goHref("plan")}" data-goto="plan" data-el="action-${esc(openItems[0].id)}">${
+            plural(openItems.length, "action item")} not closed</a></li>` : "",
+          risky.length ? `<li><a href="${goHref("compliance")}" data-goto="compliance" data-el="req-${esc(risky[0].id)}">${
+            plural(risky.length, "requirement")} at risk</a></li>` : "",
+        ].join("")}</ul>`
+      : subhead("Still open") + `<p class="rb-small rb-muted">Nothing outstanding.</p>`) +
+
+    (docs.length
+      ? subhead("Attachments", `${plural(docs.length, "file")} carried with this pursuit`) +
+        `<ul class="rb-rows">${docs.map((doc) => `
+          <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:180px">
+            <span class="rb-row-text">${esc(doc.file)}</span><span></span><span></span>
+            <span class="rb-meta r">${[doc.type, bytes(doc.bytes)].filter(has).map(esc).join(" \u00b7 ")}</span>
+          </div></li>`).join("")}</ul>`
+      : "");
 }
 
 /* ---------- 6. Scorecard ---------- */
@@ -801,7 +894,7 @@ function secEvaluation(p, d, ctx) {
   const mechanic = crit.length
     ? `Scored out of ${total || 100}. Heaviest weight: ${esc(crit.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0))[0].name)}.`
     : "How they score it — and therefore where effort pays.";
-  return head("Scorecard", mechanic) +
+  return head("Scoring & fit", mechanic) +
     (crit.length
       ? `<ul class="rb-weights">${crit.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0)).map((c) => `
           <li><span>${esc(c.name)}</span>
@@ -852,8 +945,7 @@ function secRequirements(p, d, ctx) {
       </div>`,
   });
 
-  return subhead("If we win, we deliver this",
-    `${plural(reqs.length, "requirement")} — the scope we are committing to`) +
+  return
     themes.map((th) => listBlock(ctx, `req:${th}`, th,
       reqs.filter((r) => (r.theme || "Ungrouped") === th).map(rowFor),
       { unit: "requirement" })).join("");
@@ -897,7 +989,7 @@ function secTeam(p, d, ctx) {
   const saving = totalHours && hasAi ? Math.round((1 - totalAi / totalHours) * 100) : 0;
   const hrs = (n) => (n ? `${n.toLocaleString()} hrs` : "\u2014");
   const DIST = { front: "front-loaded", back: "back-loaded", even: "spread evenly" };
-  return head("Team & burden", "To deliver, not to respond. DRAFT.") +
+  return head("Effort & team", "What delivering this would take. DRAFT.") +
     (arr(p.roster).length
       ? `<div class="rb-group"><div class="rb-group-head"><span>Roster</span><span class="rb-nav-count">${p.roster.length}</span></div>
          <ul class="rb-rows">${p.roster.map((r) => `
@@ -978,7 +1070,7 @@ function secQuestions(p, d, ctx) {
       </div>
     </div>` : "";
   const headBlock = `<div class="rb-sec-head">
-      ${head("Questions for client")}
+      ${head("Questions to client")}
       ${exportBtn}
     </div>`;
 
@@ -1410,11 +1502,23 @@ export function renderBrief(pack, mount, opts = {}) {
     <div class="rb-shell">
       <nav class="rb-nav" aria-label="Brief sections">
         <div class="rb-nav-eyebrow">${esc(pack.client || "Brief")}</div>
-        ${live.filter((s) => !s.chrome).map((s) => {
-          const c = s.count ? s.count(pack) : null;
-          return `<a href="${goHref(s.id)}" data-goto="${s.id}"><span>${esc(s.label)}</span>${
-            c ? `<span class="rb-nav-count">${c}</span>` : ""}</a>`;
-        }).join("")}
+        ${(() => {
+          const link = (x) => {
+            const c = x.count ? x.count(pack) : null;
+            return `<a href="${goHref(x.id)}" data-goto="${x.id}"><span>${esc(x.label)}</span>${
+              c ? `<span class="rb-nav-count">${c}</span>` : ""}</a>`;
+          };
+          const page = live.filter((x) => !x.chrome);
+          /* Ungrouped items sit above the groups: today that is TLDR alone, and
+             it belongs there because it answers all four intents at once. */
+          const out = [page.filter((x) => !x.group).map(link).join("")];
+          for (const g of GROUPS) {
+            const inG = page.filter((x) => x.group === g);
+            if (!inG.length) continue;   // a group with nothing in it is not a heading
+            out.push(`<div class="rb-nav-group">${esc(g)}</div>${inG.map(link).join("")}`);
+          }
+          return out.join("");
+        })()}
         ${live.some((s) => s.chrome && s.id === "documents")
           ? `<a href="${goHref("documents")}" data-goto="documents" class="rb-nav-chrome"><span>Documents</span><span class="rb-nav-count">${arr(pack.documents).length}</span></a>`
           : ""}
@@ -1448,20 +1552,6 @@ export function renderBrief(pack, mount, opts = {}) {
       const vis = [...list.querySelectorAll(".rb-rows > li")]
         .filter((li) => getComputedStyle(li).display !== "none").length;
       const empty = list.querySelector(".rb-filter-empty");
-      if (empty) empty.hidden = vis > 0;
-      return;
-    }
-    const tchip = e.target.closest("[data-tchip]");
-    if (tchip) {
-      e.preventDefault();
-      const wrap = tchip.closest(".rb-section")?.querySelector(".rb-timewrap");
-      if (!wrap) return;
-      wrap.dataset.kind = tchip.dataset.tchip;
-      tchip.parentElement.querySelectorAll("[data-tchip]").forEach((b) =>
-        b.setAttribute("aria-pressed", String(b === tchip)));
-      const vis = [...wrap.querySelectorAll(".rb-timeline > li")]
-        .filter((li) => getComputedStyle(li).display !== "none").length;
-      const empty = wrap.querySelector(".rb-filter-empty");
       if (empty) empty.hidden = vis > 0;
       return;
     }
