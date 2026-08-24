@@ -14,7 +14,7 @@ const $ = (s, r = document) => r.querySelector(s);
 const screen = $("#screen");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-let CONFIG = { hubName: "Bid Board", baseUrl: "", hubVersion: "1.1.0" };
+let CONFIG = { hubName: "Bid Board", baseUrl: "", hubVersion: "1.3.0" };
 let LIBRARY = [];
 const view = { filter: "all", sort: "deadline", q: "" };
 
