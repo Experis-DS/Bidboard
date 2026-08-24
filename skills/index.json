@@ -59,16 +59,16 @@
     "name": "go",
     "slash": "/go",
     "file": "go.skill",
-    "version": "2026.08.24",
-    "sha": "23b75d9",
-    "bytes": 160728,
+    "version": "2026.08.21",
+    "sha": "24fb650",
+    "bytes": 191109,
     "group": "owner",
     "order": 5,
     "blurb": "Stands up this site. Run once per team, by whoever owns the repo.",
     "thumb": "assets/skills/go.svg",
     "locked": true,
     "published": true,
-    "publishedAt": "2026-08-24"
+    "publishedAt": "2026-08-21"
   },
   {
     "name": "push-template",

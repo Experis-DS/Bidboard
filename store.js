@@ -13,12 +13,22 @@
    that on its own, so JSON.stringify(pack) is sliced across
    pursuits/{briefId}/pack/{i} and reassembled on read.
 
-   The cost of that choice is real and worth stating: bundled DOCUMENTS stay in
-   the importer's browser. Everyone sees the same brief; only the person who
-   imported it can open the source files from the Document Map. Given the site
-   is a public URL with no sign-in, keeping client documents off the network is
-   the better failure mode. See reference/data-model.md.
+   DOCUMENTS are carried the same way, and this is a change of posture. They
+   used to stay in the importer's browser, so only that person could open a
+   source file — which meant the Document Map was dead for everyone else, and
+   "shouldn't matter what machine one is on" is the correct expectation for a
+   shared board. So a bundled file is now base64-chunked into
+   pursuits/{briefId}/files/{key}__{i} and reassembled on demand.
+
+   READ THE TRADE. This puts client RFP documents on the same open endpoint as
+   everything else here, and there is still no sign-in. It is defensible for a
+   pilot and NOT defensible for a live client RFP: put Firebase Auth in front of
+   the site (Google, Experis domain restricted) before real client documents go
+   in. carryDocuments:false in config.json reverts to importer-only behaviour
+   without a code change. See reference/data-model.md.
    ============================================================ */
+
+import { migrate } from "./schema.js";
 
 const SDK = "https://www.gstatic.com/firebasejs/10.12.2";
 const DB_NAME = "bid-board";
@@ -146,17 +156,27 @@ export async function getPursuit(briefId) {
 }
 
 export async function getPack(briefId) {
+  const base = await getPackBase(briefId);
+  return base ? applyOverrides(base, await getElements(briefId)) : null;
+}
+
+/* The imported baseline, WITHOUT overrides applied.
+   Live sync needs this: when a remote edit arrives we have to re-merge, and the
+   merged pack we already hold can't be un-merged. Holding the baseline means a
+   remote edit costs one structuredClone rather than re-reading every pack chunk
+   over the network. */
+export async function getPackBase(briefId) {
   const idx = await getPursuit(briefId);
   if (!idx) return null;
   if (store.mode === "shared" && navigator.onLine && idx.packChunks) {
     try {
       const pack = await readChunkedPack(briefId, idx.packChunks);
-      await idbPut("packs", pack, briefId);
-      return applyOverrides(pack, await getElements(briefId));
+      await idbPut("packs", pack, briefId);   // cache the pack AS STORED, not as migrated
+      return migrate(pack);
     } catch (e) { console.warn("Pack fetch failed — using cache.", e); }
   }
   const cached = await idbGet("packs", briefId);
-  return cached ? applyOverrides(cached, await getElements(briefId)) : null;
+  return cached ? migrate(cached) : null;
 }
 
 export async function getElements(briefId) {
@@ -179,9 +199,14 @@ export function applyOverrides(pack, overrides) {
   for (const o of overrides.slice().sort((a, b) => String(a.at).localeCompare(String(b.at)))) {
     try {
       if (o.kind === "add") {
-        out[o.collection] = [...(out[o.collection] || []), o.value];
+        const c = coll(out, o.collection, true);
+        c.set([...(c.get() || []), o.value]);
       } else if (o.kind === "remove") {
-        out[o.collection] = (out[o.collection] || []).filter((x) => String(x.id) !== String(o.itemId));
+        const key = o.itemKey || "id";
+        const c = coll(out, o.collection);
+        c.set((c.get() || []).filter((x, i) =>
+          key === "@index" ? String(i) !== String(o.itemId)
+          : String(x && x[key]) !== String(o.itemId)));
       } else {
         setByPath(out, o.path, o.value);
       }
@@ -190,22 +215,54 @@ export function applyOverrides(pack, overrides) {
   return out;
 }
 
+/* A collection reference that works at the root ("requirements") or nested
+   ("team.competencies"). `create` builds the intermediate object so the first
+   add to an empty team does not throw. */
+function coll(root, name, create) {
+  const parts = String(name).split(".");
+  let cur = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (cur[parts[i]] == null) {
+      if (!create) throw new Error("no such collection");
+      cur[parts[i]] = {};
+    }
+    cur = cur[parts[i]];
+  }
+  const last = parts[parts.length - 1];
+  return { get: () => cur[last], set: (v) => { cur[last] = v; } };
+}
+
 function setByPath(obj, path, value) {
-  // supports  requirements[id=R-014].owner  and  submission.date
+  /* Supports
+        requirements[id=R-014].owner     select an object by any field
+        roster[name=Bryan].role          …including one with no id
+        team.keyPersonnel[2]             select by position
+        submission.date                  plain nesting
+     Position selectors are a compromise, used only for arrays of plain strings
+     that carry nothing to match on. They are stable while the list is, and an
+     override pointing at a row that has since moved lands in the orphan branch
+     rather than writing to the wrong row silently. */
   const parts = path.match(/[^.[\]]+(\[[^\]]+\])?/g) || [];
   let cur = obj;
   for (let i = 0; i < parts.length; i++) {
-    const m = /^([^[]+)(?:\[([^=\]]+)=([^\]]+)\])?$/.exec(parts[i]);
+    const m = /^([^[]+)(?:\[(?:([^=\]]+)=([^\]]+)|(\d+))\])?$/.exec(parts[i]);
     if (!m) throw new Error("bad path");
-    const [, key, selKey, selVal] = m;
+    const [, key, selKey, selVal, idx] = m;
     let next = cur[key];
-    if (selKey) {
+    if (idx !== undefined) {
       if (!Array.isArray(next)) throw new Error("bad path");
-      next = next.find((x) => String(x[selKey]) === selVal);
+      const n = Number(idx);
+      if (n >= next.length) throw new Error("orphan");
+      if (i === parts.length - 1) { next[n] = value; return; }
+      next = next[n];
+    } else if (selKey) {
+      if (!Array.isArray(next)) throw new Error("bad path");
+      next = next.find((x) => String(x && x[selKey]) === selVal);
       if (!next) throw new Error("orphan");
     }
     if (i === parts.length - 1 && !selKey) { cur[key] = value; return; }
     if (i === parts.length - 1 && selKey) { Object.assign(next, value); return; }
+    if (next === undefined || next === null) throw new Error("bad path");
     cur = next;
   }
 }
@@ -258,31 +315,125 @@ async function writeChunkedPack(briefId, pack) {
   return parts.length;
 }
 
+/* ---------------- document bytes ----------------
+   base64 costs 33% in size and buys a value Firestore will actually store. A
+   700,000-char slice leaves comfortable headroom under the 1 MiB document cap
+   once field names and encoding overhead are counted. */
+const FILE_CHUNK = 700000;
+export const ASSET_MAX_BYTES = 8 * 1024 * 1024;
+
+/* String.fromCharCode.apply on a whole PDF blows the argument limit and throws
+   RangeError somewhere north of 100 KB, which presented as "import worked, file
+   is empty". Chunk the conversion too. */
+function toB64(u8) {
+  let out = "";
+  const CH = 0x8000;
+  for (let i = 0; i < u8.length; i += CH) out += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  return btoa(out);
+}
+function fromB64(str) {
+  const bin = atob(str);
+  const u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  return u8;
+}
+const fileKey = (name) => String(name).replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 110);
+
+/* Returns which files made it and which did not, so the importer can say so
+   rather than leaving a silently dead link. */
+async function writeAssets(briefId, assets) {
+  const { fs, db, root } = store._fb;
+  const carried = [], skipped = [];
+
+  for (const [name, raw] of assets) {
+    const u8 = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+    if (u8.byteLength > ASSET_MAX_BYTES) { skipped.push({ name, bytes: u8.byteLength }); continue; }
+    try {
+      const s64 = toB64(u8);
+      const parts = [];
+      for (let i = 0; i < s64.length; i += FILE_CHUNK) parts.push(s64.slice(i, i + FILE_CHUNK));
+      const key = fileKey(name);
+
+      // Same hazard as the pack: a shorter re-upload leaves the old tail behind
+      // and the count check then rejects a file that is actually complete.
+      const old = await fs.getDocs(fs.query(fs.collection(db, root, briefId, "files"), fs.where("name", "==", name)));
+      await Promise.all(old.docs.filter((d) => Number(d.data().i) >= parts.length).map((d) => fs.deleteDoc(d.ref)));
+
+      await Promise.all(parts.map((part, i) => fs.setDoc(
+        fs.doc(db, root, briefId, "files", `${key}__${i}`),
+        { name, i, total: parts.length, bytes: u8.byteLength, s: part })));
+      carried.push(name);
+    } catch (e) {
+      console.warn(`Could not carry ${name} — it stays local to this browser.`, e);
+      skipped.push({ name, bytes: u8.byteLength, why: e.message || String(e) });
+    }
+  }
+  return { carried, skipped };
+}
+
 /* ---------------- writes ---------------- */
 
 /* Pack chunks first, index doc LAST — so a failed import leaves the Library
    exactly as it was rather than half-populated. The index doc is what the
    Library reads, so until it lands the pursuit does not exist. */
-export async function putPursuit({ index, pack, assets }) {
+export async function putPursuit({ index, pack, assets, carryDocuments = true }) {
   if (store.mode === "shared") {
     const { fs, db, root } = store._fb;
     index.packChunks = await writeChunkedPack(index.briefId, pack);
+    // Files before the index doc, for the same reason the pack goes first: the
+    // index is what the Library reads, so nothing half-built is ever visible.
+    if (carryDocuments && assets && assets.size) {
+      const r = await writeAssets(index.briefId, assets);
+      index.filesCarried = r.carried;
+      index.filesSkipped = r.skipped;
+    } else {
+      index.filesCarried = [];
+      index.filesSkipped = [];
+    }
     await fs.setDoc(fs.doc(db, root, index.briefId), index, { merge: true });
   }
-  // Bundled documents stay on this machine. They are the one thing in a pack
-  // that can be the client's own property, and this site is a public URL.
+  // Also kept locally, which makes the importer's own first open instant and
+  // keeps the Document Map working with no network at all.
   for (const [name, b] of (assets || new Map())) await idbPut("assets", b, `${index.briefId}/${name}`);
   await idbPut("packs", pack, index.briefId);
   await idbPut("pursuits", index);
   return index;
 }
 
-/* Bytes for a document carried in the bundle, or null. Null is a real answer,
-   and the common one: documents live only in the importer's browser, so for
-   everyone else the renderer shows the row as plain text rather than a link
-   that goes nowhere. */
-export async function getAssetBytes(briefId, relPath) {
+/* Bytes already on THIS machine. Synchronous-ish and never touches the network,
+   so the brief can resolve its document links before first paint without
+   waiting on a download. */
+export async function getAssetBytesLocal(briefId, relPath) {
   return (await idbGet("assets", `${briefId}/${relPath}`)) || null;
+}
+
+/* Bytes from wherever they are. Local cache first, then the chunks the importer
+   uploaded. Fetched bytes are written into the local cache, so the second open
+   of a document — and every reload after it — costs nothing. */
+export async function getAssetBytes(briefId, relPath) {
+  const local = await getAssetBytesLocal(briefId, relPath);
+  if (local) return local;
+  if (store.mode !== "shared") return null;
+  try {
+    const { fs, db, root } = store._fb;
+    const snap = await fs.getDocs(fs.query(
+      fs.collection(db, root, briefId, "files"), fs.where("name", "==", relPath)));
+    if (snap.empty) return null;
+    const parts = snap.docs.map((d) => d.data()).sort((a, b) => Number(a.i) - Number(b.i));
+    const total = Number(parts[0].total) || parts.length;
+    // A partially uploaded file is not a file. Returning half a PDF would open a
+    // viewer on a corrupt document, which reads as "the site is broken".
+    if (parts.length !== total) {
+      console.warn(`${relPath} is incomplete: ${parts.length} of ${total} chunks`);
+      return null;
+    }
+    const u8 = fromB64(parts.map((p) => p.s).join(""));
+    await idbPut("assets", u8, `${briefId}/${relPath}`);
+    return u8;
+  } catch (e) {
+    console.warn(`Could not fetch ${relPath}.`, e);
+    return null;
+  }
 }
 
 export async function updateIndex(briefId, patch) {
@@ -345,6 +496,97 @@ export async function listActivity(briefId) {
   return all.filter((a) => a.briefId === briefId).sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
+/* ---------------- live subscriptions ----------------
+   Every read above is one-shot. That was the whole defect behind "my colleague
+   edited it, I can see it in the activity log, and my document never changed":
+   the write landed in Firestore, the reader had already finished reading, and
+   nothing told it to look again. Edits were only ever live on reload.
+
+   Two rules make these safe to wire into a rendering app:
+
+   1. IGNORE OUR OWN ECHO. Firestore fires a local snapshot the instant you
+      write, before the server confirms. Re-rendering on that would tear down
+      the contenteditable element the person is currently typing into. So any
+      snapshot carrying pending local writes is skipped — the local state is
+      already correct by definition.
+   2. NEVER THROW. A listener that fails must degrade to the cached view, the
+      same way the one-shot reads do. A rejected listener is a silent
+      permission or index problem, and taking the page down with it turns a
+      stale brief into a blank one.
+
+   Both return an unsubscribe function. Local mode returns a no-op, so callers
+   never branch on store.mode. */
+
+function noop() {}
+
+export function subscribePursuits(onRows) {
+  if (store.mode !== "shared") return noop;
+  const { fs, db, root } = store._fb;
+  try {
+    return fs.onSnapshot(fs.collection(db, root), (snap) => {
+      if (snap.metadata.hasPendingWrites) return;
+      const rows = snap.docs.map((d) => d.data());
+      Promise.all(rows.map((r) => idbPut("pursuits", r))).catch(() => {});
+      store.online = true;
+      onRows(rows);
+    }, (err) => {
+      console.warn("Library sync unavailable — showing the cached library.", err);
+      store.online = false;
+    });
+  } catch (e) {
+    console.warn("Library sync could not start.", e);
+    return noop;
+  }
+}
+
+/* One call, three collections, one unsubscribe. Callers get whichever handlers
+   they pass and nothing fires for the ones they don't. */
+export function subscribeBrief(briefId, { onElements, onActivity, onIndex } = {}) {
+  if (store.mode !== "shared") return noop;
+  const { fs, db, root } = store._fb;
+  const subs = [];
+
+  const watch = (ref, label, handle) => {
+    try {
+      subs.push(fs.onSnapshot(ref, (snap) => {
+        if (snap.metadata.hasPendingWrites) return;
+        store.online = true;
+        try { handle(snap); } catch (e) { console.warn(`${label} handler failed.`, e); }
+      }, (err) => {
+        console.warn(`${label} sync unavailable — showing what's cached.`, err);
+        store.online = false;
+      }));
+    } catch (e) {
+      console.warn(`${label} sync could not start.`, e);
+    }
+  };
+
+  if (onElements) {
+    watch(fs.collection(db, root, briefId, "elements"), "Edit", (snap) => {
+      const list = snap.docs.map((d) => d.data());
+      idbPut("elements", list, briefId).catch(() => {});
+      onElements(list);
+    });
+  }
+  if (onActivity) {
+    watch(fs.collection(db, root, briefId, "activity"), "Activity", (snap) => {
+      const rows = snap.docs.map((d) => d.data())
+        .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+      onActivity(rows);
+    });
+  }
+  if (onIndex) {
+    watch(fs.doc(db, root, briefId), "Pursuit", (snap) => {
+      if (!snap.exists()) return;
+      const row = snap.data();
+      idbPut("pursuits", row).catch(() => {});
+      onIndex(row);
+    });
+  }
+
+  return () => { for (const u of subs) { try { u(); } catch {} } };
+}
+
 /* A checkpoint snapshots the OVERRIDES, not the merged pack — the baseline
    never changes, so this is small, and restoring can't resurrect stale content
    from the imported pack. */
@@ -394,7 +636,7 @@ export async function deletePursuit(briefId) {
     // deleted one — the new pursuit arrives pre-edited by someone else. "pack"
     // is in this list too: leftover chunks make the count check fail on the
     // next import, which reads as a corrupt pack rather than a stale delete.
-    for (const sub of ["pack", "elements", "activity", "checkpoints", "threads"]) {
+    for (const sub of ["pack", "files", "elements", "activity", "checkpoints", "threads"]) {
       try {
         const snap = await fs.getDocs(fs.collection(db, root, briefId, sub));
         await Promise.all(snap.docs.map((d) => fs.deleteDoc(d.ref)));

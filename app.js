@@ -4,7 +4,7 @@
    The shell finds a pursuit. The renderer draws it. No overlap.
    ============================================================ */
 
-import { initStore, store, listPursuits, getPack, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement } from "./store.js";
+import { initStore, store, listPursuits, getPack, getPackBase, applyOverrides, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getAssetBytesLocal, ASSET_MAX_BYTES, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement, subscribeBrief, subscribePursuits } from "./store.js";
 import { validate, askLine, CURRENT_SCHEMA, MIN_SCHEMA } from "./schema.js";
 import { unzip, asJson } from "./unzip.js";
 import { renderBrief, derive, RENDERER_VERSION } from "./renderer/renderer.js";
@@ -14,8 +14,9 @@ const $ = (s, r = document) => r.querySelector(s);
 const screen = $("#screen");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-let CONFIG = { hubName: "Bid Board", baseUrl: "", hubVersion: "1.3.0" };
+let CONFIG = { hubName: "Bid Board", baseUrl: "", hubVersion: "1.1.0" };
 let LIBRARY = [];
+let LIB_UNSUB = null;
 const view = { filter: "all", sort: "deadline", q: "" };
 
 const DAY = 864e5;
@@ -58,7 +59,7 @@ const STAGE_LABEL = {
    GA4, and only if a measurement ID is configured. With the field empty no
    Google script is requested at all, which is the state the site ships in.
    Client names are the sensitive part of a URL here, so page_view is sent with
-   a normalised path — "/brief" not "/b/allianz-partners". You get section and
+   a normalized path — "/brief" not "/b/allianz-partners". You get section and
    funnel data; GA never receives who Experis is bidding for. */
 function initAnalytics() {
   const id = CONFIG.analytics?.measurementId?.trim();
@@ -106,19 +107,33 @@ function track(name, params = {}) {
 function paintConnection() {
   if (globalThis.__DEMO_PACKS__) {
     for (const el of [$("#connPill"), $("#briefConn")]) {
-      el.textContent = "Demo"; el.dataset.mode = "local";
+      el.textContent = CONFIG.hubVersion ? `v${CONFIG.hubVersion} demo` : "Demo";
+      el.dataset.mode = "local";
+      el.setAttribute("aria-label", `Demo build, version ${CONFIG.hubVersion || "unknown"}`);
       el.title = "Sample data baked into this file. Nothing is saved and nobody else sees it.";
     }
     return;
   }
+  /* The pill shows the deployed VERSION; the dot shows the state.
+     "Shared" was the right word exactly once — the first time you read it. After
+     that it is a constant, and a constant tells you nothing. What people
+     actually need from this corner is "am I looking at the build I just pushed?",
+     which is unanswerable on a static site with no other stamp.
+
+     The mode is not lost, it moves to the dot: green shared, red offline, gray
+     local-only. Color alone is never the only carrier — the tooltip still says
+     it in words, and the version is prefixed for screen readers. */
   const mode = !navigator.onLine ? "offline" : store.mode;
   const label = { shared: "Shared", local: "Local only", offline: "Offline" }[mode];
+  const ver = CONFIG.hubVersion ? `v${CONFIG.hubVersion}` : "—";
   for (const el of [$("#connPill"), $("#briefConn")]) {
-    el.textContent = label;
+    el.textContent = ver;
     el.dataset.mode = mode;
-    el.title = mode === "shared" ? "Imports are visible to everyone on this site."
-      : mode === "local" ? "No shared storage configured — imports stay in this browser."
-      : "No network. Showing what's cached in this browser.";
+    el.setAttribute("aria-label", `${label} · version ${CONFIG.hubVersion || "unknown"}`);
+    el.title = (mode === "shared" ? "Shared — imports are visible to everyone on this site."
+      : mode === "local" ? "Local only — no shared storage configured, so imports stay in this browser."
+      : "Offline — showing what's cached in this browser.")
+      + `\nBid Board ${ver}`;
   }
 }
 
@@ -134,7 +149,10 @@ function route() {
 
   // Leaving a brief takes the review layer with it — the button and panel are
   // body-level chrome and would otherwise follow you to the Library.
-  if (!inBrief) { unmountComments(); BRIEF = null; }
+  // Leaving a view takes its live listeners with it. An orphaned onSnapshot keeps
+  // firing against a BRIEF that no longer exists, which reads as a ghost re-render.
+  if (!inBrief) { unmountComments(); BRIEF?.unsub?.(); BRIEF = null; }
+  if (head !== "" && head !== undefined) { LIB_UNSUB?.(); LIB_UNSUB = null; }
 
   $("#hubHead").hidden = inBrief || embedded;
   $("#briefBar").hidden = !inBrief || embedded;
@@ -161,19 +179,29 @@ const wrap = (html, narrow) => `<div class="wrap ${narrow ? "wrap-narrow" : ""}"
    ============================================================ */
 async function screenLibrary() {
   screen.innerHTML = wrap(`
-    <div class="page-head"><div class="eyebrow">Library</div><h1 class="h1">Pursuits</h1></div>
+    <div class="page-head"><div class="eyebrow">Library</div><h1 class="h1">Opportunities</h1></div>
     <div class="cards">${'<div class="skel"></div>'.repeat(3)}</div>`);
 
   LIBRARY = await listPursuits();
-  if (!LIBRARY.length) return paintEmpty();
-  paintLibrary();
+  if (!LIBRARY.length) paintEmpty(); else paintLibrary();
+
+  /* The Library is shared state — somebody else importing a pursuit should make
+     it appear here without a refresh. Repaint only when the set actually differs,
+     so a readiness recalculation elsewhere doesn't flicker the whole grid. */
+  LIB_UNSUB?.();
+  LIB_UNSUB = subscribePursuits((rows) => {
+    if (location.hash.replace(/^#\/?/, "").split("/")[0] !== "") return;
+    if (JSON.stringify(rows) === JSON.stringify(LIBRARY)) return;
+    LIBRARY = rows;
+    if (!LIBRARY.length) paintEmpty(); else paintLibrary();
+  });
 }
 
 function paintEmpty() {
   screen.innerHTML = wrap(`
     <div class="page-head">
       <div class="eyebrow">Library</div>
-      <h1 class="h1">No pursuits yet</h1>
+      <h1 class="h1">No opportunities yet</h1>
       <p class="sub" style="margin-top:8px">Four steps. The first is a one-time setup.</p>
     </div>
     ${STEPS}
@@ -194,7 +222,7 @@ const STEPS = `
 const modeNote = () => globalThis.__DEMO_PACKS__ ? DEMO_NOTE : store.mode === "local" ? LOCAL_NOTE : "";
 
 const DEMO_NOTE = `<div class="notice notice-quiet">
-  <b>Demo.</b> Sample pursuits are baked into this file so you can click around. Nothing is
+  <b>Demo.</b> Sample opportunities are baked into this file so you can click around. Nothing is
   saved, nothing is shared, and the Import screen works on real /RFP bundles if you have one.</div>`;
 
 const LOCAL_NOTE = `<div class="notice notice-quiet">
@@ -208,15 +236,14 @@ function paintLibrary() {
   screen.innerHTML = wrap(`
     <div class="page-head">
       <div class="eyebrow">Library</div>
-      <h1 class="h1">Pursuits</h1>
-      <p class="sub" style="margin-top:6px">${LIBRARY.length} imported${
-        soon ? ` · <b style="color:var(--urgent)">${soon} due within a week</b>` : ""}.</p>
+      <h1 class="h1">Opportunities</h1>
+      ${soon ? `<p class="sub" style="margin-top:6px"><b style="color:var(--urgent)">${soon} due this week</b></p>` : ""}
     </div>
     <div class="filters">
-      ${["all", "active", "decided", "submitted"].map((f) => `
-        <button class="chip" data-filter="${f}" aria-pressed="${view.filter === f}"
+      ${["all", "open", "soon", "closed"].map((f) => `
+        <button class="chip" data-libfilter="${f}" aria-pressed="${view.filter === f}"
           ${counts(f) ? "" : "disabled"}>${
-          { all: "All", active: "Active", decided: "No-bid", submitted: "Submitted" }[f]
+          { all: "All", open: "Open", soon: "Due this week", closed: "Closed" }[f]
         }<b>${counts(f)}</b></button>`).join("")}
       <span class="spacer"></span>
       <input type="search" id="q" placeholder="Search client or id" value="${esc(view.q)}">
@@ -231,19 +258,25 @@ function paintLibrary() {
 
   paintCards();
 
-  screen.addEventListener("click", (e) => {
-    const c = e.target.closest("[data-filter]");
-    if (c) { view.filter = c.dataset.filter; paintLibrary(); }
+  screen.querySelector(".filters").addEventListener("click", (e) => {
+    const c = e.target.closest("[data-libfilter]");
+    if (c) { view.filter = c.dataset.libfilter; paintLibrary(); }
   });
   $("#q").addEventListener("input", (e) => { view.q = e.target.value; paintCards(); });
   $("#sort").addEventListener("change", (e) => { view.sort = e.target.value; paintCards(); });
 }
 
+/* Filters derive from the DEADLINE, never from a stage field.
+   The six-step pipeline was removed because nothing keeps it honest: it only
+   moves when a human remembers to move it, and a stale "Drafting" on a pursuit
+   submitted three weeks ago is worse than no label at all. A deadline is in the
+   documents, so these buckets are always true without anyone maintaining them. */
 function matchFilter(p, f) {
   if (f === "all") return true;
-  if (f === "decided") return p.stage === "no-bid";
-  if (f === "submitted") return p.stage === "submitted";
-  return !["no-bid", "submitted"].includes(p.stage);
+  const d = days(p.deadline);
+  if (f === "soon")   return d !== null && d >= 0 && d <= 7;
+  if (f === "closed") return d !== null && d < 0;
+  return d === null || d >= 0;                 // "open"
 }
 
 function paintCards() {
@@ -267,9 +300,27 @@ function paintCards() {
 function card(p) {
   const d = days(p.deadline);
   const stale = p.schemaVersion > CURRENT_SCHEMA || p.schemaVersion < MIN_SCHEMA;
-  const closed = ["submitted", "no-bid"].includes(p.stage);
   const state = d === null ? "" : d < 0 ? "is-past" : d <= 7 ? "is-urgent" : "";
   const ready = typeof p.readiness === "number" ? Math.round(p.readiness * 100) : null;
+  const c = p.counts || {};
+
+  /* WHAT IS OUTSTANDING, not how many requirements exist.
+     The old line read "22 reqs · 16 open" and two separate readers parsed it as
+     Bullhorn requisitions — "that would be number of job opportunities… that's
+     how we would qualify in Bullhorn" — then could not say what the 22 meant.
+     In a staffing company "reqs" is a reserved word, and a raw inventory count
+     is not a reason to click anyway. What earns the space is what is unfinished
+     and whether anyone owns it. */
+  const bits = [];
+  if (typeof c.openItems === "number") {
+    bits.push(c.openItems
+      ? `${c.openItems} open item${c.openItems === 1 ? "" : "s"}`
+      : "nothing outstanding");
+  }
+  if (c.unassigned) bits.push(`<b class="card-warn">${c.unassigned} unassigned</b>`);
+  if (c.atRisk) bits.push(`<b class="card-warn">${c.atRisk} at risk</b>`);
+  const lift = p.responseLift && p.responseLift.size
+    ? `<span class="card-lift" title="Effort to respond">${esc(p.responseLift.size)}</span>` : "";
 
   return `<a class="card ${stale ? "stale" : ""} ${state}" href="#/b/${esc(p.briefId)}">
     <div class="card-client">${esc(p.client)}</div>
@@ -281,15 +332,16 @@ function card(p) {
 
     ${stale
       ? `<div class="small muted">Needs a newer pack — built for schema v${esc(p.schemaVersion)}.</div>`
-      : `<div class="card-stage ${closed ? "is-closed" : ""}">${esc(STAGE_LABEL[p.stage] || p.stage || "Stage not set")}${
-          p.counts ? ` · ${p.counts.requirements} reqs · ${p.counts.openItems} open` : ""}</div>`}
+      : bits.length || lift
+      ? `<div class="card-state">${lift}<span>${bits.join(" · ")}</span></div>`
+      : ""}
 
     <div class="card-foot">
       ${ready !== null && !stale ? `<div class="card-ready">
         <span class="num">${ready}%</span>
         <span class="bar"><i style="width:${ready}%"></i></span>
         <span>ready</span></div>` : ""}
-      <div class="card-prov">${esc(p.importedBy || "—")} · imported ${esc(ago(p.importedAt))}</div>
+      <div class="card-prov" title="${esc(p.importedBy || "unknown")} · imported ${esc(ago(p.importedAt))}">${esc(ago(p.importedAt))}</div>
     </div></a>`;
 }
 
@@ -407,7 +459,10 @@ function importReview() {
         ${s.counts.questions} questions · ${s.counts.documents} documents</dd>
       <dt>Built by /RFP</dt><dd>${s.generatedAt ? esc(fmtDate(s.generatedAt)) : "<span class='muted'>unknown</span>"}</dd>
       ${staged.migratedFrom ? `<dt>Schema</dt><dd>migrated from v${staged.migratedFrom} to v${CURRENT_SCHEMA}</dd>` : ""}
-      ${staged.assets.size ? `<dt>Files</dt><dd>${staged.assets.size} attached</dd>` : ""}
+      ${staged.assets.size ? `<dt>Files</dt><dd>${staged.assets.size} attached${
+        CONFIG.carryDocuments === false ? " — kept in this browser only" : " — carried by the site"}${
+        [...staged.assets.values()].some((b) => b.byteLength > ASSET_MAX_BYTES)
+          ? `<br><span class="muted small">Anything over ${Math.round(ASSET_MAX_BYTES / 1048576)} MB stays local — too large for a Firestore document set.</span>` : ""}</dd>` : ""}
     </dl>
     ${up ? `<div class="notice" style="margin-top:16px">
       Edits the team has made here since the last import are kept — they layer on top of the
@@ -417,7 +472,7 @@ function importReview() {
       anyone with this site's URL. Confirm that's intended.</div>` : ""}
     ${modeNote() ? `<div style="margin-top:12px">${modeNote()}</div>` : ""}
     <p style="margin-top:24px;display:flex;gap:8px">
-      <button class="btn btn-primary" id="doImport">${up ? "Update the pursuit" : "Import it"}</button>
+      <button class="btn btn-primary" id="doImport">${up ? "Update the opportunity" : "Import it"}</button>
       <a class="btn" href="#/import">Cancel</a></p>`);
 
   $("#doImport").addEventListener("click", doImport);
@@ -461,7 +516,7 @@ async function doImport() {
   });
 
   try {
-    await putPursuit({ index, pack, assets });
+    await putPursuit({ index, pack, assets, carryDocuments: CONFIG.carryDocuments !== false });
     track("pursuit_import", { schema_version: pack.schemaVersion, requirements: (pack.requirements || []).length });
     await appendActivity(s.briefId, { kind: "import", editor: who, section: "—", after: `${staged.fileName} (schema v${CURRENT_SCHEMA})` });
     LIBRARY = await listPursuits();
@@ -493,7 +548,7 @@ async function screenBrief(briefId, section) {
     $("#hubHead").hidden = false; $("#briefBar").hidden = true;
     return (screen.innerHTML = wrap(`
       <div class="page-head"><div><h1 class="h1">Not found</h1>
-        <p class="sub">No pursuit called <code>${esc(briefId)}</code> is in this library.</p></div></div>
+        <p class="sub">No opportunity called <code>${esc(briefId)}</code> is in this library.</p></div></div>
       <p><a class="btn" href="#/">Back to the library</a>
          <a class="btn" href="#/import">Import it</a></p>`, true));
   }
@@ -501,31 +556,52 @@ async function screenBrief(briefId, section) {
 
   const pack = await getPack(briefId);
   if (!pack) return (screen.innerHTML = wrap(`
-    <div class="notice bad">This pursuit is in the library but its content isn't cached on this
+    <div class="notice bad">This opportunity is in the library but its content isn't cached on this
     device and the site can't reach shared storage right now.</div>`, true));
 
   // Pre-resolve hosted asset URLs so the renderer stays synchronous.
   const urls = await resolveAssetUrls(idx, pack);
+  /* What the site is carrying for this pursuit. Recorded on the index doc at
+     import, so knowing whether a file is available costs no extra read. */
+  const carried = new Set(idx.filesCarried || []);
 
   screen.innerHTML = `<div id="brief"></div>`;
-  BRIEF = { briefId, idx, pack, api: null, editing: false };
+  BRIEF = { briefId, idx, pack, base: await getPackBase(briefId), api: null, editing: false, unsub: null, pendingRemote: null };
 
   const opts = {
-    section: section || "snapshot",
+    /* Land where you left off. A response lead lives in Our readiness for three
+       weeks and was made to walk through TLDR every single time; a first-time
+       reader still gets TLDR, because there is nothing remembered yet. Per
+       pursuit and per person, so it is a viewing preference rather than content. */
+    section: section || lastSection(briefId) || "snapshot",
     headerHeight: 60,
-    onNavigate: (id) => history.replaceState(null, "", `#/b/${briefId}/${id}`),
+    /* Who is reading. Only used to offer the "Mine" filter chip — with no name
+       the chip is not offered rather than shown broken. Read without prompting:
+       asking for a name just to view a list would be the wrong trade. */
+    me: localStorage.getItem("hub.editor") || "",
+    onNavigate: (id) => {
+      history.replaceState(null, "", `#/b/${briefId}/${id}`);
+      try { localStorage.setItem(`hub.at.${briefId}`, id); } catch {}
+    },
     onDerive: (m) => {
-      const changed = m.readiness !== BRIEF.idx.readiness || JSON.stringify(m.counts) !== JSON.stringify(BRIEF.idx.counts);
+      /* The Library card reads these. Persisting them here means the counts are
+         refreshed by the act of someone opening the brief — self-healing for
+         pursuits imported before the card learned to show them. */
+      const patch = { readiness: m.readiness, counts: m.counts, responseLift: m.responseLift || null };
+      const changed = m.readiness !== BRIEF.idx.readiness
+        || JSON.stringify(m.counts) !== JSON.stringify(BRIEF.idx.counts)
+        || JSON.stringify(patch.responseLift) !== JSON.stringify(BRIEF.idx.responseLift);
       if (changed) {
-        BRIEF.idx = { ...BRIEF.idx, readiness: m.readiness, counts: m.counts };
-        updateIndex(briefId, { readiness: m.readiness, counts: m.counts }).catch(() => {});
+        BRIEF.idx = { ...BRIEF.idx, ...patch };
+        updateIndex(briefId, patch).catch(() => {});
       }
     },
     onEdit: applyEdit,
     resolveDoc: (doc, page) => {
-      if (!doc || doc.unreadable) return null;
+      if (!doc || doc.unreadable || !doc.href) return null;
       const u = urls[doc.href];
-      return u ? u + (page && String(doc.type).toLowerCase() === "pdf" ? `#page=${page}` : "") : null;
+      if (u) return u + (page && String(doc.type).toLowerCase() === "pdf" ? `#page=${page}` : "");
+      return carried.has(doc.href) ? FETCH_PREFIX + encodeURIComponent(doc.href) : null;
     },
   };
   BRIEF.opts = opts;
@@ -533,6 +609,46 @@ async function screenBrief(briefId, section) {
 
   bindBriefBar(briefId, idx, pack, BRIEF.api);
   refreshActivityCount();
+
+  /* Fetch-on-click for a document the site carries but this browser has not
+     seen. Capture phase, because the renderer's own [data-doc] handling sits on
+     the same click and this has to win: the href is a sentinel, and letting it
+     through would put "#fetch/..." in the address bar. */
+  $("#brief").addEventListener("click", async (e) => {
+    const a = e.target.closest(`a[href^="${FETCH_PREFIX}"]`);
+    if (!a) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const href = decodeURIComponent(a.getAttribute("href").slice(FETCH_PREFIX.length));
+    const doc = (pack.documents || []).find((x) => x.href === href);
+    const label = a.textContent;
+    a.textContent = "fetching…";
+    a.setAttribute("aria-busy", "true");
+    const url = await fetchDocument(briefId, href, urls, doc || {});
+    a.removeAttribute("aria-busy");
+    a.textContent = label;
+    if (!url) { alert("That file is not on the board.\n\nIt was either too large to attach at import, or the import did not finish. Re-import the bundle to attach it."); return; }
+    // Re-render so every link to this document becomes a real one, then hand
+    // the file over. A download rather than a new tab: the click that would
+    // have opened the tab is several awaits behind us and popup blockers count
+    // that as unsolicited.
+    if (BRIEF && BRIEF.briefId === briefId) BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
+    const t = document.createElement("a");
+    t.href = url;
+    t.download = (doc && doc.file) || href.split("/").pop();
+    document.body.appendChild(t); t.click(); t.remove();
+  }, true);
+
+  /* LIVE SYNC. Until this existed, another person's edit reached Firestore and
+     sat there: this page had already finished reading, so the brief only caught
+     up on reload. The activity feed looked live purely because opening the panel
+     re-fetched it. */
+  BRIEF.unsub?.();
+  BRIEF.unsub = subscribeBrief(briefId, {
+    onElements: (list) => applyRemoteElements(briefId, list),
+    onActivity: () => refreshActivityCount(),
+    onIndex: (row) => { if (BRIEF && BRIEF.briefId === briefId) BRIEF.idx = row; },
+  });
 
   /* The review layer. Independent of edit mode on purpose — commenting is what
      people who are not editing do, and making it a mode would hide it from
@@ -588,13 +704,44 @@ const NEW_ITEM = {
   questions:   (p) => ({ id: nextId(p, "questions", "Q"), topic: "General", text: "New question" }),
   risks:       (p) => ({ id: nextId(p, "risks", "K"), severity: "med", title: "New risk", detail: "", mitigation: "" }),
   rules:       (p) => ({ id: nextId(p, "rules", "C"), label: "New rule", checked: false, mandatory: false }),
+  requirements:(p) => ({ id: nextId(p, "requirements", "R"), text: "New requirement", theme: "Ungrouped", owner: null, status: "open" }),
+  decisions:   (p) => ({ id: nextId(p, "decisions", "D"), text: "New decision", by: "", at: new Date().toISOString().slice(0, 10) }),
+  parkingLot:  (p) => ({ id: nextId(p, "parkingLot", "P"), text: "New parked item" }),
+  /* Keyed by name rather than id, because that is what the pack carries and
+     inventing ids for these on import would break /DRAFT's read of the same
+     collections. applyOverrides removes by whichever field the delete button
+     names, so no id is needed. */
+  roster:      () => ({ name: "New person", role: "" }),
+  meetings:    (p) => ({ id: nextId(p, "meetings", "M"), type: "call", date: new Date().toISOString().slice(0, 10), attendees: [] }),
+  /* Nested collections. The competency name doubles as its key, so a new row
+     needs a name nobody else has — "New competency" twice would make both rows
+     un-editable, since a name selector would match the first every time. */
+  "team.competencies": (p) => ({
+    name: `New competency ${((p.team && p.team.competencies) || []).length + 1}`,
+    hours: 0, hoursAi: 0, requirementIds: [],
+  }),
+  "team.keyPersonnel": () => "New mandate",
+  "signals.red":   () => ({ basis: "New signal", source: "" }),
+  "signals.green": () => ({ basis: "New signal", source: "" }),
+  "signals.soft":  () => ({ basis: "New signal", source: "" }),
+  "scorecard.criteria":        (p) => ({ name: `New criterion ${arr2(p, "scorecard", "criteria").length + 1}`, weight: 0 }),
+  "evaluation.criteria":       (p) => ({ name: `New criterion ${arr2(p, "evaluation", "criteria").length + 1}`, weight: 0 }),
+  "scorecard.successCriteria":  () => "New success criterion",
+  "evaluation.successCriteria": () => "New success criterion",
 };
 
+/* NEW_ITEM sometimes needs to count a nested collection to name the next row. */
+const arr2 = (p, a, b) => ((p && p[a] && p[a][b]) || []);
+
+/* Re-render in the mode the reader is ACTUALLY in. This used to hard-code
+   "edit", which was harmless while every edit came from an edit-mode control —
+   and wrong the moment a read-mode checkbox could write, because ticking one box
+   flipped the whole brief into edit mode underneath the person. */
 async function applyEdit(change) {
-  // A cancelled "New topic…" prompt: nothing to record, but the select is
+  // A canceled "New topic…" prompt: nothing to record, but the select is
   // showing __new and has to be put back.
   if (change.kind === "noop") {
-    if (change.rerender !== false && BRIEF) BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    if (change.rerender !== false && BRIEF) BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
     return;
   }
   const who = editorName();
@@ -628,7 +775,7 @@ async function applyEdit(change) {
       before: from, after: `${to} · ${affected.length} question${affected.length === 1 ? "" : "s"} moved`,
     });
     BRIEF.pack = await getPack(briefId);
-    BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
     refreshActivityCount();
     flashSaved();
     return;
@@ -637,7 +784,11 @@ async function applyEdit(change) {
   let entry;
   if (change.kind === "add") {
     const value = (NEW_ITEM[change.coll] || (() => ({ id: nextId(BRIEF.pack, change.coll, "X") })))(BRIEF.pack);
-    entry = { id: `add-${change.coll}-${value.id}`, kind: "add", collection: change.coll, value, editor: who, at };
+    /* The override id has to be unique per added row. `value.id` is undefined for
+       the collections keyed by name and for plain-string rows, so a second add
+       would overwrite the first and the row would never appear. */
+    const tag = (value && (value.id || value.name)) || `${Date.now().toString(36)}`;
+    entry = { id: `add-${change.coll}-${tag}`, kind: "add", collection: change.coll, value, editor: who, at };
   } else if (change.kind === "remove") {
     /* Deleting a row that an override added: drop the "add" instead of layering
        a "remove" on top of it. Both would exist, and applyOverrides orders by
@@ -658,12 +809,13 @@ async function applyEdit(change) {
         section: change.coll, field: "deleted", before: change.itemId, after: "(deleted)",
       });
       BRIEF.pack = await getPack(briefId);
-      BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+      BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
       refreshActivityCount();
       flashSaved();
       return;
     }
-    entry = { id: `remove-${change.coll}-${change.itemId}`, kind: "remove", collection: change.coll, itemId: change.itemId, editor: who, at };
+    entry = { id: `remove-${change.coll}-${change.itemId}`, kind: "remove", collection: change.coll,
+              itemId: change.itemId, itemKey: change.itemKey || "id", editor: who, at };
   } else {
     entry = { id: change.elementId, kind: "set", path: change.path, value: change.value, editor: who, at };
   }
@@ -679,7 +831,7 @@ async function applyEdit(change) {
   // rebuild the merged pack from baseline + overrides so derived numbers are honest
   BRIEF.pack = await getPack(briefId);
   if (change.rerender !== false) {
-    BRIEF.api = BRIEF.api.update(BRIEF.pack, "edit");
+    BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
     refreshComments();
   }
   refreshActivityCount();
@@ -701,6 +853,47 @@ function flashSaved() {
    lives in localStorage rather than being written back to the shared log. */
 const seenKey = (briefId) => `hub.actSeen.${briefId}`;
 const lastSeen = (briefId) => localStorage.getItem(seenKey(briefId)) || "";
+
+/* ---------------- remote edits ----------------
+   A remote change re-merges the overrides onto the baseline and re-renders.
+
+   The guard is the whole difficulty. A re-render replaces DOM, and if the person
+   is mid-sentence in a contenteditable field their caret, selection and unsaved
+   keystrokes go with it — a sync feature that eats your typing is worse than no
+   sync at all. So while focus is inside an editable element the incoming state
+   is parked, and applied on the next focusout. Last write still wins; it just
+   waits for a safe moment to land. */
+function isEditingNow() {
+  const a = document.activeElement;
+  const host = $("#brief");
+  if (!a || !host || !host.contains(a)) return false;
+  return a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName);
+}
+
+function applyRemoteElements(briefId, list) {
+  if (!BRIEF || BRIEF.briefId !== briefId || !BRIEF.base) return;
+
+  if (isEditingNow()) {
+    BRIEF.pendingRemote = list;
+    if (!BRIEF.flushBound) {
+      BRIEF.flushBound = true;
+      // capture phase: focusout does not bubble reliably from removed nodes
+      document.addEventListener("focusout", () => {
+        if (!BRIEF || !BRIEF.pendingRemote) return;
+        const next = BRIEF.pendingRemote;
+        BRIEF.pendingRemote = null;
+        // one tick, so focus has actually settled before we replace DOM
+        setTimeout(() => applyRemoteElements(BRIEF?.briefId, next), 0);
+      }, true);
+    }
+    return;
+  }
+
+  const merged = applyOverrides(BRIEF.base, list);
+  if (JSON.stringify(merged) === JSON.stringify(BRIEF.pack)) return;   // nothing user-visible changed
+  BRIEF.pack = merged;
+  BRIEF.api = BRIEF.api.update(BRIEF.pack, BRIEF.editing ? "edit" : "read");
+}
 
 async function refreshActivityCount() {
   const el = $("#actCount");
@@ -830,21 +1023,42 @@ async function openRestore(briefId) {
   };
 }
 
-/* Resolve only documents that actually travelled with the bundle. Anything else
+/* Resolve only documents that actually traveled with the bundle. Anything else
    returns nothing and the renderer prints the row as plain text — a link that
    404s is worse than no link. */
 /* Documents live in the importing browser only — there is no Cloud Storage in
    this build. The Storage lookup that used to sit here referenced an SDK that
    is no longer loaded, so it threw on every call and fell through to the cache
    by accident. Now it just reads the cache, and says so when it comes up empty. */
+/* Only what is already on this machine. Resolving remotely here would mean
+   downloading every attached PDF before the brief paints, which on a pursuit
+   with a 30 MB document set is a blank screen for half a minute. The rest
+   resolve on click, once, and are cached from then on. */
+const lastSection = (briefId) => {
+  try { return localStorage.getItem(`hub.at.${briefId}`) || ""; } catch { return ""; }
+};
+
 async function resolveAssetUrls(idx, pack) {
   const out = {};
   for (const doc of pack.documents || []) {
     if (!doc.href || doc.unreadable) continue;
-    const bytes = await getAssetBytes(idx.briefId, doc.href);
+    const bytes = await getAssetBytesLocal(idx.briefId, doc.href);
     if (bytes) out[doc.href] = URL.createObjectURL(new Blob([bytes], { type: mimeFor(doc) }));
   }
   return out;
+}
+
+/* A document the site is carrying but this browser has not fetched yet. The
+   href is a sentinel rather than a real URL: the bytes do not exist locally, so
+   there is nothing to point at until somebody asks. */
+const FETCH_PREFIX = "#fetch/";
+
+async function fetchDocument(briefId, href, urls, doc) {
+  if (urls[href]) return urls[href];
+  const bytes = await getAssetBytes(briefId, href);
+  if (!bytes) return null;
+  urls[href] = URL.createObjectURL(new Blob([bytes], { type: mimeFor(doc) }));
+  return urls[href];
 }
 
 /* Without a type, a Blob URL downloads as an unnamed binary and a PDF will not
@@ -902,7 +1116,7 @@ function bindBriefBar(briefId, idx, pack, api) {
         <dt>Hub</dt><dd>${esc(CONFIG.hubVersion)}</dd>
       </dl>
       <p class="small muted" style="margin-top:14px">A redeploy of this site updates the renderer for
-      every pursuit at once — packs are data, so nothing needs re-importing.</p>`);
+      every opportunity at once — packs are data, so nothing needs re-importing.</p>`);
     /* Bulk cleanup for rows that were added and never filled in. Deliberately
        narrow: only rows an override created, still carrying the exact default
        text, with no field edits of their own. Anything a person typed into is
@@ -965,7 +1179,7 @@ function bindBriefBar(briefId, idx, pack, api) {
     }
     if (what === "restore") openRestore(briefId);
     if (what === "delete") {
-      const ok = prompt(`Type the pursuit id to delete it permanently:\n${briefId}`);
+      const ok = prompt(`Type the opportunity id to delete it permanently:\n${briefId}`);
       if (ok !== briefId) return;
       await deletePursuit(briefId);
       LIBRARY = await listPursuits();
@@ -1112,11 +1326,11 @@ const HELP_STEPS = [
     body: `In your AI tool of choice — Claude, Copilot, etc — add all of the relevant RFP documents
            into one project folder and say <code>run /rfp</code>.` },
   { art: "assets/help/bundle.svg",
-    title: "Save the pursuit pack",
+    title: "Save the opportunity pack",
     body: `The AI tool will create one zip file that ends in <code>-rfp-bundle.zip</code>. We will
            call this the <b>pursuit pack</b>.` },
   { art: "assets/help/import.svg",
-    title: "Upload the pursuit pack",
+    title: "Upload the opportunity pack",
     body: `Up at the top of this page, click <b>Import a pursuit</b> and add it. This populates all
            the relevant information into an indexed <b>pursuit</b> you can open from the home page.` },
 ];
@@ -1124,7 +1338,7 @@ const HELP_STEPS = [
 const DECK_STEPS = [
   { art: "assets/help/export-pack.svg",
     title: "Export the pack from the brief",
-    body: `Open the pursuit and click <b>Export pack</b>. You get a JSON file built to drop
+    body: `Open the opportunity and click <b>Export pack</b>. You get a JSON file built to drop
            straight into the microsite template, so the deck starts from what the brief
            already knows and nothing is retyped.` },
   { art: "assets/help/draft-deck.svg",
@@ -1156,7 +1370,7 @@ const HELP_NOTES = {
   brief: [
     { h: "What's actually in the zip",
       p: `A <b>pack</b> — the RFP turned into data: requirements, dates, owners, risks, questions.
-          This site draws the brief from that data, so when the design improves every pursuit
+          This site draws the brief from that data, so when the design improves every opportunity
           improves at once and nobody re-does anything.` },
     { h: "If import refuses the file",
       p: `It will say why in plain words. Almost always it means the copy of <code>/rfp</code> that
