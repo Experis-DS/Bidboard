@@ -569,11 +569,13 @@ async function screenBrief(briefId, section) {
   BRIEF = { briefId, idx, pack, base: await getPackBase(briefId), api: null, editing: false, unsub: null, pendingRemote: null };
 
   const opts = {
-    /* Land where you left off. A response lead lives in Our readiness for three
-       weeks and was made to walk through TLDR every single time; a first-time
-       reader still gets TLDR, because there is nothing remembered yet. Per
-       pursuit and per person, so it is a viewing preference rather than content. */
-    section: section || lastSection(briefId) || "snapshot",
+    /* Always open on TLDR. This used to restore the last section you were in,
+       which sounded considerate and was not: you would open a pursuit and land
+       mid-way inside Understand with no idea why, and the one screen written to
+       orient you was the one screen you never saw. A deep link still wins —
+       #/b/<id>/questions opens Questions — but a bare #/b/<id> is a request to
+       read the brief, and reading it starts at the top. */
+    section: section || "snapshot",
     headerHeight: 60,
     /* Who is reading. Only used to offer the "Mine" filter chip — with no name
        the chip is not offered rather than shown broken. Read without prompting:
@@ -581,7 +583,6 @@ async function screenBrief(briefId, section) {
     me: localStorage.getItem("hub.editor") || "",
     onNavigate: (id) => {
       history.replaceState(null, "", `#/b/${briefId}/${id}`);
-      try { localStorage.setItem(`hub.at.${briefId}`, id); } catch {}
     },
     onDerive: (m) => {
       /* The Library card reads these. Persisting them here means the counts are
@@ -1034,10 +1035,6 @@ async function openRestore(briefId) {
    downloading every attached PDF before the brief paints, which on a pursuit
    with a 30 MB document set is a blank screen for half a minute. The rest
    resolve on click, once, and are cached from then on. */
-const lastSection = (briefId) => {
-  try { return localStorage.getItem(`hub.at.${briefId}`) || ""; } catch { return ""; }
-};
-
 async function resolveAssetUrls(idx, pack) {
   const out = {};
   for (const doc of pack.documents || []) {
