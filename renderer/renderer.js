@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.0.1";
+export const RENDERER_VERSION = "3.1.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -211,7 +211,10 @@ const SECTIONS = [
   { id: "compliance",   label: "Delivery scope",       render: secRequirementsTab, group: "Understand",
     when: (p) => has(p.requirements) || arr(p.dates).some((x) => dateKind(x) === "program"),
     count: (p) => arr(p.requirements).length || null },
-  { id: "rules",        label: "Rules of the bid",     render: secRulesTab, group: "Understand",
+  /* Was "Rules of the bid" — a title that named the container rather than the
+     job. Nobody could tell from it whether the section held the scoring rules,
+     the contract terms or the page limit. It holds the page limit. */
+  { id: "rules",        label: "How to submit",        render: secRulesTab, group: "Understand",
     when: (p) => has(p.rules),
     count: (p) => arr(p.rules).length || null },
 
@@ -222,6 +225,13 @@ const SECTIONS = [
   { id: "evaluation",   label: "Scoring & fit",        render: secEvaluation, group: "Decide",
     when: (p) => has(p.scorecard) || has(p.evaluation) },
 
+  /* Both clocks on one rail. They used to be two folds in two different
+     sections — "Our clock" inside Our readiness, "Their program" inside
+     Delivery scope — so the one question a timeline exists to answer, how the
+     two run against each other, could not be asked at all. */
+  { id: "timeline",     label: "Timeline",             render: secTimeline, group: "Build",
+    when: (p) => has(p.dates) || has(p.submission),
+    count: (p) => arr(p.dates).length || null },
   { id: "plan",         label: "Our readiness",        render: secPlan, group: "Build",
     when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
     count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
@@ -244,7 +254,7 @@ const SECTIONS = [
 let BASE_ROUTE = "#";
 const goHref = (id) => (BASE_ROUTE === "#" ? "#" : `${BASE_ROUTE}/${id}`);
 
-const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "plan", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
+const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "timeline", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
 
 /* ---------- date kinds ----------
    Two clocks were being drawn on one rail and read as one sequence. A RESPONSE
@@ -434,17 +444,17 @@ function tileCountdown(c) {
     <div class="rb-tile-label">Critical path</div>
     <div class="rb-metric-num">${big}<small> ${esc(unit)}</small></div>
     <div class="rb-metric-note">${note}</div>
-    <details class="rb-expand"><summary>Milestones and slack</summary>
+    ${/* This fold used to redraw every response milestone, which made three
+          renderings of the same dates on one brief — here, in the Our clock
+          fold below it, and in Their program two sections over. All three are
+          gone now: what is unique to this tile is the slack arithmetic and what
+          is already late, and the dates themselves belong on the rail. */""}
+    <details class="rb-expand"><summary>How this is counted</summary>
       <div class="rb-expand-body">
-        <ul class="rb-rows">${c.milestones.filter((m) => m.kind === "response").map((m) => `
-          <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:96px;--rb-c3:82px">
-            <span class="rb-row-text">${esc(m.label)}</span><span></span>
-            <span class="rb-meta r">${esc(fmtDate(m.date))}</span>
-            <span class="rb-meta r ${m.days < 0 ? "is-late" : ""}">${m.days < 0 ? `${Math.abs(m.days)}d ago` : `${m.days}d slack`}</span>
-          </div></li>`).join("")}</ul>
-        ${c.late.length ? `<p class="rb-small" style="margin-top:10px;color:var(--rb-urgent)">Late: ${
+        ${c.late.length ? `<p class="rb-small" style="margin:0 0 10px;color:var(--rb-urgent)">Late: ${
           c.late.map((i) => esc(i.task)).join("; ")}</p>` : ""}
         <div class="rb-formula">slack = due date − today, from Key Dates and item due dates</div>
+        <p class="rb-small" style="margin-top:10px"><a href="${goHref("timeline")}" data-goto="timeline">Every milestone on one rail&nbsp;→</a></p>
       </div>
     </details>
   </div>`;
@@ -658,12 +668,9 @@ function secScope(p, d, ctx) {
    screen and making it a dashboard instead of a read-out. */
 function secPlan(p, d, ctx) {
   const items = arr(p.actionItems);
-  /* Response dates only. Program dates moved to Delivery scope, where they
-     describe the engagement rather than pretending to be slack on our clock. */
-  const resp = d.criticalPath.ok
-    ? d.criticalPath.milestones.filter((m) => m.kind === "response")
-    : [];
-  const timelineOpen = !items.length;
+  /* No dates fold. Both clocks live in Timeline now — this section is about
+     whether we are ready, which is a different question from when things fall
+     due, and answering both here is what made either one hard to find. */
   const r = d.readiness;
 
   /* The number, then the reason the number is not 100. A percentage with no
@@ -688,13 +695,7 @@ function secPlan(p, d, ctx) {
        it — which is already grouped by owner and counts itself. The heatmap()
        function is kept: it is the right instrument once themes are populated
        enough to have a shape, and Team is where it will land if it returns. */
-    secChecklist(p, d, ctx) +
-    (resp.length
-      ? `<details class="rb-fold"${timelineOpen ? " open" : ""} data-el="timeline">
-           <summary>Our clock</summary>
-           <div class="rb-fold-body">${timeline(resp, "response")}</div>
-         </details>`
-      : "");
+    secChecklist(p, d, ctx);
 }
 
 /* Delivery scope — what we would be on the hook for if we win, and over what
@@ -707,26 +708,57 @@ function secPlan(p, d, ctx) {
    TLDR and appears exactly once; this is the itemised scope. Naming both "the
    ask" is the collision that got a fold deleted from TLDR already. */
 function secRequirementsTab(p, d, ctx) {
-  const prog = d.criticalPath.ok
-    ? d.criticalPath.milestones.filter((m) => m.kind === "program")
-    : [];
   const n = arr(p.requirements).length;
+  /* No "Their program" fold. The client's dates are not scope, and reading them
+     here meant reading them apart from our own clock — see Timeline. */
   return head("Delivery scope", n ? `${plural(n, "requirement")} — the scope we are committing to` : "") +
-    secRequirements(p, d, ctx) +
-    (prog.length
-      ? `<details class="rb-fold" data-el="program">
-           <summary>Their program</summary>
-           <div class="rb-fold-body">${timeline(prog, "program")}</div>
-         </details>`
-      : "");
+    secRequirements(p, d, ctx);
 }
 
-/* Rules of the bid — the constraints to read before anyone writes. Read-only:
+/* How to submit — the constraints to read before anyone writes. Read-only:
    a rule is not a task, and the confirmation pass over these lives in
    Pre-flight, where ticking one means something. */
+/* Both clocks, one rail, filterable by whose clock it is. The CSS already knew
+   how to draw two kinds on one timeline and hide either — that was built and
+   then never given a surface, because the two folds kept them apart. */
+function secTimeline(p, d, ctx) {
+  const c = d.criticalPath;
+  if (!c.ok) return head("Timeline") + `<p class="rb-empty">${esc(c.why)}</p>`;
+
+  const ms = c.milestones;
+  const ours = ms.filter((m) => m.kind === "response").length;
+  const theirs = ms.filter((m) => m.kind === "program").length;
+  const chip = (k, label, n) => (n === 0 && k !== "all") ? "" :
+    `<button type="button" class="rb-chip-f" data-tlchip="${k}"
+       aria-pressed="${String(k === "all")}">${label}<span class="rb-chip-n">${n}</span></button>`;
+
+  /* No colour names in the copy. The accent is indigo, not red, and a subtitle
+     that miscalls it is worse than one that says nothing — the key below is
+     what carries the mapping, and it cannot drift from the stylesheet. */
+  return head("Timeline",
+    "Our response clock and the client's programme on one rail, in date order.") +
+    /* The key is not decoration. Two dot colours on one rail is meaningless
+       until something says which is which, and this legend was written for
+       exactly that and then stranded when the rail was split in two. Only the
+       kinds actually on the rail are listed — a legend entry for a track with
+       no dates on it reads as missing data rather than as an absent track. */
+    `<div class="rb-key">${[
+       ["response", "Our response clock", ours],
+       ["program", "Their programme", theirs],
+     ].filter(([, , n]) => n > 0)
+      .map(([k, label]) => `<span class="rb-key-i" data-kind="${k}"><i></i>${label}</span>`)
+      .join("")}</div>` +
+    ((ours && theirs)
+      ? `<div class="rb-chips" role="group" aria-label="Filter the timeline">
+           ${chip("all", "All", ms.length)}${chip("response", "Ours", ours)}${chip("program", "Theirs", theirs)}
+         </div>`
+      : "") +
+    timeline(ms, "all");
+}
+
 function secRulesTab(p, d, ctx) {
   const n = arr(p.rules).length;
-  return head("Rules of the bid",
+  return head("How to submit",
     `${plural(n, "rule")} governing the submission — miss one and the bid is discarded unread`) +
     secRules(p, d, ctx);
 }
@@ -800,10 +832,18 @@ function secChecklist(p, d, ctx) {
    and the muted past rows here, both derived from dates, so neither can rot. */
 function timeline(rows, kind) {
   if (!rows.length) return `<p class="rb-empty">No dates captured.</p>`;
-  const next = rows.findIndex((m) => m.days >= 0);
+  /* Mark the next upcoming row of EACH kind, not just the next response one.
+     On the combined rail both markers exist and the wrapper's data-kind decides
+     which one is painted — in "all" the response marker wins, because that is
+     the clock that can lose you the bid. */
+  const nextOf = Object.create(null);
+  rows.forEach((m, i) => {
+    const k = m.kind || kind;
+    if (m.days >= 0 && nextOf[k] === undefined) nextOf[k] = i;
+  });
   return `<div class="rb-timewrap" data-kind="${kind}">
     <ul class="rb-timeline">${rows.map((m, i) => `
-      <li data-kind="${m.kind || kind}"${i === next && kind === "response" ? ` data-next="response"` : ""}
+      <li data-kind="${m.kind || kind}"${nextOf[m.kind || kind] === i ? ` data-next="${esc(m.kind || kind)}"` : ""}
           class="${m.days < 0 ? "is-past" : ""}" data-el="date-${esc(m.id || i)}">
         <div class="rb-tl-date">${esc(m.id === "submission" ? fmtDeadline(m.date) : fmtDate(m.date))} \u00b7 ${
           m.days < 0 ? `${Math.abs(m.days)} days ago` : `in ${plural(m.days, "day")}`}</div>
@@ -1494,12 +1534,19 @@ function secRisks(p, d, ctx) {
       </div>`,
   });
 
-  return head("Risks & signals") +
+  return head("Risks & signals",
+    "Two questions live here, and they have different answers. Keep them apart.") +
+
+    half("Can we deliver it?",
+      "If we win, these are the ways the work itself could go wrong \u2014 scope, scale, SLAs, skills. Each one needs a mitigation we can defend in the response.") +
+    (risks.length
+      ? listBlock(ctx, "risk:all", "Delivery risks", risks.map(riskRow), { unit: "risk", axis: "sev" })
+      : `<p class="rb-empty">No delivery risks captured.</p>`) +
+
+    half("Should we bid at all?",
+      "Nothing below is about the work. It is about whether we are positioned to win it \u2014 incumbents, relationships, timing, fit. Read this before anyone spends a day on the response.") +
     (has(s.winLikelihood)
       ? `<div class="rb-verdict"><p><b>Win likelihood — DRAFT</b><span><b>${esc(s.winLikelihood)}</b></span></p></div>` : "") +
-    (risks.length
-      ? listBlock(ctx, "risk:all", "Risks", risks.map(riskRow), { unit: "risk", axis: "sev" })
-      : "") +
     listBlock(ctx, "sig:red", "Working against us", signalRows(s.red, "red"), { unit: "signal" }) +
     addBtn(ctx, "signals.red", "Add a signal") +
     listBlock(ctx, "sig:green", "Working for us", signalRows(s.green, "green"), { unit: "signal" }) +
@@ -1604,6 +1651,18 @@ const docTarget = (doc, href) => isFetchHref(href) ? ""
 /* ---------- shared bits ---------- */
 /* A heading for a block that lives INSIDE a composite section — one h2 per
    screen, or the page grows two competing titles. */
+/* A hard divider between two questions that share a section.
+   "Risk" was doing two jobs: a four-day turnaround is a reason we might not WIN,
+   a 96% fill-rate SLA with liquidated damages is a reason we might not DELIVER.
+   Same word, opposite decisions, one undifferentiated list. Each half now states
+   its question as a heading and says in one line what belongs under it. */
+function half(question, gloss) {
+  return `<div class="rb-half">
+    <h2 class="rb-half-q">${esc(question)}</h2>
+    <p class="rb-half-gloss">${esc(gloss)}</p>
+  </div>`;
+}
+
 function subhead(title, sub) {
   return `<h3 class="rb-h3 rb-subhead">${esc(title)}</h3>${
     sub ? `<p class="rb-sub rb-small">${esc(sub)}</p>` : ""}`;
@@ -1736,7 +1795,20 @@ export function renderBrief(pack, mount, opts = {}) {
   /* Filtering is a CSS state flip, not a re-render: re-rendering would destroy
      focus and any half-typed value in edit mode, and would fight the live-sync
      guard in the host app. Nothing about the pack changes when you filter. */
+  /* Timeline kind filter. Same principle as the list chips: a CSS state flip on
+     the wrapper, never a re-render — the kind rules already live in the
+     stylesheet, so this only has to move one attribute. */
   on("click", (e) => {
+    const tl = e.target.closest("[data-tlchip]");
+    if (tl) {
+      e.preventDefault();
+      const wrap = tl.closest(".rb-section")?.querySelector(".rb-timewrap");
+      if (!wrap) return;
+      wrap.dataset.kind = tl.dataset.tlchip;
+      tl.parentElement.querySelectorAll("[data-tlchip]").forEach((b) =>
+        b.setAttribute("aria-pressed", String(b === tl)));
+      return;
+    }
     const chip = e.target.closest("[data-lchip]");
     if (chip) {
       e.preventDefault();

@@ -420,7 +420,11 @@
 .rb-step.is-current::before { background: var(--rb-accent); border-color: var(--rb-accent); box-shadow: 0 0 0 3px var(--rb-accent-soft); }
 
 /* ---- timeline ---- */
-.rb-timeline { border-left: 1px solid var(--rb-line); padding-left: 22px; margin-left: 4px; }
+/* `.rb ul { padding: 0 }` is specificity (0,1,1) and this was (0,1,0), so the
+   rail lost its gutter: every dot sat behind its own text at left:-26px of
+   nothing. It went unseen because the timeline only ever rendered inside two
+   collapsed <details> folds. Qualify the selector so it outranks the reset. */
+.rb ul.rb-timeline { border-left: 1px solid var(--rb-line); padding-left: 22px; margin-left: 4px; }
 .rb-timeline > li { position: relative; padding: 11px 0; }
 .rb-timeline > li::before {
   content: ""; position: absolute; left: -26px; top: 18px;
@@ -877,6 +881,22 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 
 /* A composite section owns one h2; its halves get this. */
 .rb-subhead { margin-top: var(--rb-s5); }
+
+/* --- the two-question divider inside one section --- */
+.rb-half {
+  margin: var(--rb-s6) 0 var(--rb-s3);
+  padding-top: var(--rb-s3);
+  border-top: 2px solid var(--rb-ink);
+}
+.rb-half:first-of-type { margin-top: var(--rb-s4); }
+.rb-half-q {
+  margin: 0; font-size: var(--rb-t-h2); font-weight: 700; letter-spacing: -.01em;
+  color: var(--rb-ink);
+}
+.rb-half-gloss {
+  margin: 7px 0 0; font-size: var(--rb-t-small); line-height: 1.55;
+  color: var(--rb-gray); max-width: var(--rb-measure);
+}
 .rb-subhead:first-of-type { margin-top: 0; }
 
 /* Folded blocks — The Ask inside Scope, the timeline inside Plan, the why
