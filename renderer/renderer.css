@@ -176,9 +176,19 @@
 .rb-countdown b { font-size: 15px; font-variant-numeric: tabular-nums; }
 /* Its own line, left aligned with everything above it. Pushed right with
    margin-left:auto it read as a second column that nothing else lined up with. */
+/* A definition list, not a bare run of values. "Not specified" on its own says
+   nothing; "Submission format — Not specified" is a fact about the pack. */
 .rb-deadline-meta {
-  color: var(--rb-gray-2); font-size: var(--rb-t-small);
-  flex-basis: 100%; margin-left: 0; text-align: left; margin-top: 2px;
+  flex-basis: 100%; margin: 6px 0 0; text-align: left;
+  display: grid; grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px; row-gap: 4px; align-items: baseline;
+}
+.rb-deadline-meta dt {
+  font-size: var(--rb-t-micro, 11px); text-transform: uppercase; letter-spacing: .07em;
+  font-weight: 650; color: var(--rb-gray-2); white-space: nowrap;
+}
+.rb-deadline-meta dd {
+  margin: 0; font-size: var(--rb-t-small); color: var(--rb-gray-2); line-height: 1.5;
 }
 
 .rb-deadline.is-urgent { border-top-color: var(--rb-urgent); }
@@ -559,7 +569,8 @@
   .rb-nav a { white-space: nowrap; grid-template-columns: auto auto; }
   .rb-main { padding: var(--rb-s4) 18px 90px; border-left: 0; }
   .rb-masthead { grid-template-columns: 1fr; gap: var(--rb-s3); }
-  .rb-deadline-meta { margin-left: 0; text-align: left; flex-basis: 100%; }
+  .rb-deadline-meta { grid-template-columns: 1fr; row-gap: 1px; }
+  .rb-deadline-meta dd { margin-bottom: 6px; }
 }
 
 @media print {

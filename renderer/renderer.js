@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.0.0";
+export const RENDERER_VERSION = "3.0.1";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -299,8 +299,13 @@ function secSnapshot(p, d, ctx) {
          <span class="rb-countdown">${past
             ? `closed <b>${Math.abs(subDays)}</b> days ago`
             : `<b>${subDays}</b> ${subDays === 1 ? "day" : "days"} left`}</span>
-         ${has(p.submission.format) || has(p.submission.method)
-            ? `<span class="rb-deadline-meta">${[p.submission.format, p.submission.method].filter(has).map(esc).join("<br>")}</span>` : ""}
+         ${has(p.submission.format) || has(p.submission.method) || ctx.edit
+            ? `<dl class="rb-deadline-meta">${[
+                 ["Submission format", p.submission.format, "submission.format"],
+                 ["Submit via", p.submission.method, "submission.method"],
+               ].filter(([, v]) => has(v) || ctx.edit)
+                .map(([k, v, path]) =>
+                  `<dt>${k}</dt><dd${ed(ctx, path)}>${esc(v)}</dd>`).join("")}</dl>` : ""}
        </div>`
     : `<p class="rb-empty" style="margin-bottom:var(--rb-s4)">No submission deadline captured in the pack.</p>`;
 
