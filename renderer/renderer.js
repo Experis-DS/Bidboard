@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.1.0";
+export const RENDERER_VERSION = "3.2.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -238,9 +238,9 @@ const SECTIONS = [
   { id: "questions",    label: "Questions to client",  render: secQuestions, group: "Build",
     when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
 
-  { id: "preflight",    label: "Pre-flight",           render: secPreflight, group: "Submit",
+  { id: "preflight",    label: "Submission check",     render: secPreflight, group: "Submit",
     when: (p) => has(p.rules) || has(p.submission) },
-  { id: "decisions",    label: "Record",               render: secDecisions, group: "Submit",
+  { id: "decisions",    label: "Decision log",         render: secDecisions, group: "Submit",
     when: (p) => has(p.decisions) || has(p.parkingLot) || has(p.meetings), count: (p) => arr(p.decisions).length || null },
   /* Documents is a LAUNCHER, not a page: the way it gets used is "bam, bam,
      bam, you can get the docs you need". chrome:true keeps it out of the nav
@@ -633,6 +633,16 @@ function listBlock(ctx, key, title, rows, opts = {}) {
 
 const statusPill = (s) => `<span class="rb-status" data-s="${s}">${STATUS_LABEL[s]}</span>`;
 
+/* Column headers. Several tables were a grid of values with nothing naming the
+   columns — "competencies this RFP demands has no headers above the R-001 R-002
+   column". Same grid as the rows beneath it, so the labels sit exactly over what
+   they label; cells are passed in the same order and count as the row's. */
+function colHead(cols, gridVars, opts = {}) {
+  return `<div class="rb-colhead ${opts.noId ? "rb-row no-id" : "rb-row"}" style="${gridVars}" aria-hidden="true">${
+    cols.map((c) => `<span class="${c && c.r ? "r" : ""}">${esc(c && c.t !== undefined ? c.t : (c || ""))}</span>`).join("")}</div>`;
+}
+const R = (t) => ({ t, r: true });
+
 /* A checkbox that closes a row without entering edit mode. Offered only when the
    host can actually persist it — in the standalone HTML brief there is nowhere to
    write, and a checkbox that forgets is worse than no checkbox. */
@@ -732,19 +742,19 @@ function secTimeline(p, d, ctx) {
     `<button type="button" class="rb-chip-f" data-tlchip="${k}"
        aria-pressed="${String(k === "all")}">${label}<span class="rb-chip-n">${n}</span></button>`;
 
-  /* No colour names in the copy. The accent is indigo, not red, and a subtitle
+  /* No color names in the copy. The accent is indigo, not red, and a subtitle
      that miscalls it is worse than one that says nothing — the key below is
      what carries the mapping, and it cannot drift from the stylesheet. */
   return head("Timeline",
-    "Our response clock and the client's programme on one rail, in date order.") +
-    /* The key is not decoration. Two dot colours on one rail is meaningless
+    "Our response clock and the client's program on one rail, in date order.") +
+    /* The key is not decoration. Two dot colors on one rail is meaningless
        until something says which is which, and this legend was written for
        exactly that and then stranded when the rail was split in two. Only the
        kinds actually on the rail are listed — a legend entry for a track with
        no dates on it reads as missing data rather than as an absent track. */
     `<div class="rb-key">${[
        ["response", "Our response clock", ours],
-       ["program", "Their programme", theirs],
+       ["program", "Their program", theirs],
      ].filter(([, , n]) => n > 0)
       .map(([k, label]) => `<span class="rb-key-i" data-kind="${k}"><i></i>${label}</span>`)
       .join("")}</div>` +
@@ -930,7 +940,7 @@ function secPreflight(p, d, ctx) {
     ["Delivered by", sub.method],
   ].filter((x) => has(x[1]));
 
-  return head("Pre-flight") +
+  return head("Submission check") +
     (days !== null
       ? `<div class="rb-deadline ${days <= 2 && days >= 0 ? "is-urgent" : ""} ${days < 0 ? "is-past" : ""}">
            <span class="rb-deadline-label">${days < 0 ? "Closed" : days === 0 ? "Due today" : `${plural(days, "day")} left`}</span>
@@ -1117,33 +1127,157 @@ const compRank = (n) => {
 };
 
 /* ---------- 8. Team & Burden ---------- */
+/* ============================================================
+   EFFORT & TEAM — a proposed team, sized lean
+   ============================================================
+   This was a list of competency hours, and a reader could not tell what it was
+   for: "I do want a little bit more clarity on what this does." Hours are an
+   abstraction. A TEAM is the thing a bid actually proposes and the thing a
+   competency lead can argue with.
+
+   So the primary read is now a staffing plan — role, level, geography, remote or
+   on-site, heads, hours, and the rates those four attributes imply. Sized LEAN by
+   instruction, because in the bid space the smallest credible team is the
+   competitive one and a naive estimate runs about 3x heavy.
+
+   The competency table stays underneath as the mapping layer. It is what routes
+   requirement IDs to the right lead, which is the "too many cooks" problem the
+   whole tool exists for — if one person owns one requirement, they do not need to
+   be in the meeting. That purpose is now stated on the screen instead of needing
+   someone to explain it.
+
+   Everything here is DRAFT and everything is editable. The rates are a market
+   estimate from /RFP, not a quote. */
+
+const GEOS = {
+  us:    "US onshore",
+  latam: "Nearshore — LATAM",
+  india: "Offshore — India",
+  emea:  "EMEA",
+};
+const LEVELS = { junior: "Junior", mid: "Mid", senior: "Senior" };
+const MODES = { remote: "Remote", onsite: "On-site" };
+
+const money = (n) => (Number(n) ? `$${Math.round(Number(n)).toLocaleString()}` : "—");
+const rateOf = (r, k) => Number((r && r.rate && r.rate[k]) || 0);
+
+function selIn(ctx, coll, id, field, value, map, key) {
+  if (!ctx.edit) return esc(map[value] || value || "—");
+  return `<select class="rb-in" data-edit="${field}" data-coll="${coll}" data-id="${esc(id)}"${
+    key ? ` data-key="${esc(key)}"` : ""} aria-label="${esc(field)}">${
+    Object.entries(map).map(([k, label]) =>
+      `<option value="${esc(k)}"${k === value ? " selected" : ""}>${esc(label)}</option>`).join("")}${
+    value && !map[value] ? `<option selected>${esc(value)}</option>` : ""}</select>`;
+}
+
 function secTeam(p, d, ctx) {
   const t = p.team || {};
-  /* HOURS ONLY. FTE is gone from this view, not de-emphasized: "I do not
-     understand the function of 0.5 FTE — is it suggesting a headcount?" In a
-     staffing company a fractional FTE reads as permanent headcount to hire, and
-     the number was never that. It was always effort. `fte` is still accepted in
-     the pack and is no longer rendered anywhere. */
+  const plan = arr(t.plan);
   const comps = arr(t.competencies).slice()
     .sort((a, b) => compRank(a.name) - compRank(b.name) || String(a.name).localeCompare(String(b.name)));
+
   const hoursOf = (c) => (Number(c.hours) || 0);
   const aiOf = (c) => (Number(c.hoursAi) || 0);
-  const totalHours = comps.reduce((s, c) => s + hoursOf(c), 0);
-  const totalAi = comps.reduce((s, c) => s + (aiOf(c) || hoursOf(c)), 0);
-  /* The toggle is offered only when the pack carries a second estimate. A saving
-     the analysis did not calculate is not a saving, and inventing an uplift
-     factor here would put a made-up number next to a real one. */
-  const hasAi = comps.some((c) => aiOf(c) > 0);
-  const saving = totalHours && hasAi ? Math.round((1 - totalAi / totalHours) * 100) : 0;
-  const hrs = (n) => (n ? `${n.toLocaleString()} hrs` : "\u2014");
-  const DIST = { front: "front-loaded", back: "back-loaded", even: "spread evenly" };
-  return head("Effort & team", "What delivering this would take. DRAFT.") +
+  const eff = (c) => (aiOf(c) || hoursOf(c));
 
-    /* Roster was read-only for no reason other than nobody having written the
-       markup. It has no ids, so every control keys on `name`. */
-    (arr(p.roster).length || ctx.edit
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Roster</span>
+  /* Totals are computed for BOTH bases and both are rendered, because the toggle
+     is a CSS flip — recomputing on click would re-render and eat an edit. */
+  const sum = (rows, f) => rows.reduce((n, x) => n + f(x), 0);
+  const planAnalog = sum(plan, hoursOf), planAi = sum(plan, eff);
+  const compAnalog = sum(comps, hoursOf), compAi = sum(comps, eff);
+  const heads = sum(plan, (r) => Number(r.count) || 1);
+
+  const cost = (rows, hf) => sum(rows, (r) => hf(r) * rateOf(r, "pay"));
+  const rev  = (rows, hf) => sum(rows, (r) => hf(r) * rateOf(r, "bill"));
+  const costA = cost(plan, hoursOf), costI = cost(plan, eff);
+  const revA  = rev(plan, hoursOf),  revI  = rev(plan, eff);
+  const marginPct = (r, c) => (r > 0 ? Math.round(((r - c) / r) * 100) : 0);
+
+  const hasAi = plan.some((r) => aiOf(r) > 0) || comps.some((c) => aiOf(c) > 0);
+  const hasRates = plan.some((r) => rateOf(r, "pay") || rateOf(r, "bill"));
+  const totalAnalog = planAnalog || compAnalog;
+  const totalAi = planAi || compAi;
+  const saving = totalAnalog && hasAi ? Math.round((1 - totalAi / totalAnalog) * 100) : 0;
+
+  const hrs = (n) => (n ? `${n.toLocaleString()} hrs` : "—");
+  const DIST = { front: "front-loaded", back: "back-loaded", even: "spread evenly" };
+  const basisPair = (analog, ai) =>
+    `<span class="rb-e-analog">${analog}</span><span class="rb-e-ai">${ai}</span>`;
+
+  const planGrid = ctx.edit
+    ? "--rb-c1:300px;--rb-c2:190px;--rb-c3:190px"
+    : "--rb-c1:150px;--rb-c2:132px;--rb-c3:186px";
+
+  return head("Effort & team",
+    "The smallest credible team that can win this, and what it costs. Every figure is DRAFT.") +
+
+    /* ---------- the proposed team ---------- */
+    (plan.length || ctx.edit
+      ? `<div class="rb-group rb-effort" data-basis="${hasAi ? "ai" : "analog"}">
+           <div class="rb-group-head"><span>Proposed team</span>
+             <span class="rb-nav-count">${plural(heads, "person", "people")} · ${
+               basisPair(hrs(planAnalog), hrs(planAi))}${
+               has(t.distribution) ? ` · ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span></div>
+
+           ${hasAi
+             ? `<div class="rb-chips" role="group" aria-label="Estimate basis">
+                  <button type="button" class="rb-chip-f" data-basis="ai" aria-pressed="true">AI-assisted<span class="rb-chip-n">${
+                    hrs(planAi || compAi)}</span></button>
+                  <button type="button" class="rb-chip-f" data-basis="analog" aria-pressed="false">Analog<span class="rb-chip-n">${
+                    hrs(planAnalog || compAnalog)}</span></button>
+                  ${saving > 0 ? `<span class="rb-e-saving">${saving}% less with AI in the delivery model</span>` : ""}
+                </div>`
+             : ""}
+
+           ${colHead(["Role", "Level · where", R("Heads · hours"), R(ctx.edit ? "Pay · bill" : "Pay · bill · margin")],
+                     planGrid, { noId: true })}
+
+           <ul class="rb-rows">${plan.map((r) => `
+             <li data-el="role-${esc(r.id)}"><div class="rb-row no-id" style="${planGrid}">
+               <span class="rb-row-text">
+                 <b${edIn(ctx, `team.plan[id=${r.id}].role`, "")}>${esc(r.role || "Role")}</b>
+                 ${has(r.competency) ? `<br><span class="rb-meta">${esc(canonicalComp(r.competency) || r.competency)}</span>` : ""}
+                 ${/* The rate basis is why the number is what it is. It belongs
+                       under the role as quiet secondary text — as a full-width
+                       block per row it was three code-styled bars down the table. */""}
+                 ${has(r.rate && r.rate.basis) && !ctx.edit
+                   ? `<br><span class="rb-meta rb-basis">${esc(r.rate.basis)}</span>` : ""}
+               </span>
+               <span class="rb-meta">${selIn(ctx, "team.plan", r.id, "level", r.level, LEVELS)} ${
+                 selIn(ctx, "team.plan", r.id, "geo", r.geo, GEOS)} ${
+                 selIn(ctx, "team.plan", r.id, "mode", r.mode, MODES)}</span>
+               <span class="rb-meta r">${ctx.edit
+                 ? `${numIn(ctx, "team.plan", r.id, "count", r.count)}${
+                     numIn(ctx, "team.plan", r.id, "hours", r.hours)}${
+                     numIn(ctx, "team.plan", r.id, "hoursAi", r.hoursAi)}`
+                 : `${Number(r.count) || 1} · ${basisPair(hrs(hoursOf(r)), hrs(eff(r)))}`}</span>
+               <span class="rb-meta r">${ctx.edit
+                 ? `${numIn(ctx, "team.plan", r.id, "rate.pay", rateOf(r, "pay"))}${
+                     numIn(ctx, "team.plan", r.id, "rate.bill", rateOf(r, "bill"))}${
+                     delBtn(ctx, "team.plan", r.id)}`
+                 : `${money(rateOf(r, "pay"))} · ${money(rateOf(r, "bill"))}${
+                     rateOf(r, "bill") ? ` · <b style="color:var(--rb-ink)">${
+                       marginPct(rateOf(r, "bill"), rateOf(r, "pay"))}%</b>` : ""}`}</span>
+             </div></li>`).join("")}</ul>
+
+           ${hasRates
+             ? `<div class="rb-totals">
+                  <span><b>Cost</b> ${basisPair(money(costA), money(costI))}</span>
+                  <span><b>Revenue</b> ${basisPair(money(revA), money(revI))}</span>
+                  <span><b>Margin</b> ${basisPair(`${marginPct(revA, costA)}%`, `${marginPct(revI, costI)}%`)}</span>
+                </div>`
+             : ""}
+           ${ctx.edit
+             ? `<p class="rb-formula">Boxes, left to right: heads, analog hours, AI-assisted hours, pay rate, bill rate. Rates are a market estimate from /RFP — correct them.</p>`
+             : ""}
+           ${addBtn(ctx, "team.plan", "Add a role")}</div>`
+      : `<p class="rb-empty">No team proposed yet.</p>`)
+
+    /* ---------- who is already named ---------- */
+    + (arr(p.roster).length || ctx.edit
+      ? `<div class="rb-group"><div class="rb-group-head"><span>Named so far</span>
            <span class="rb-nav-count">${plural(arr(p.roster).length, "person", "people")}</span></div>
+         ${colHead(["Person", "", "", R("Role on the bid")], "--rb-c1:0px;--rb-c2:0px;--rb-c3:200px", { noId: true })}
          <ul class="rb-rows">${arr(p.roster).map((r) => `
            <li data-el="roster-${esc(r.name)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "200px"}">
              <span class="rb-row-text"><b${edIn(ctx, `roster[name=${r.name}].name`, "")}>${esc(r.name)}</b>${
@@ -1153,28 +1287,27 @@ function secTeam(p, d, ctx) {
              <span class="rb-meta r">${delBtn(ctx, "roster", r.name, "name")}</span>
            </div></li>`).join("")}</ul>${addBtn(ctx, "roster", "Add a person")}</div>`
       : "")
-    +
-    (comps.length || ctx.edit
+
+    /* ---------- the mapping layer ---------- */
+    + (comps.length || ctx.edit
       ? `<div class="rb-group rb-effort" data-basis="${hasAi ? "ai" : "analog"}">
            <div class="rb-group-head"><span>Competencies this RFP demands</span>
-             <span class="rb-nav-count"><span class="rb-e-analog">${hrs(totalHours)}</span><span class="rb-e-ai">${
-               hrs(totalAi)}</span> draft${
-               has(t.distribution) ? ` \u00b7 ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span></div>
-           ${hasAi
-             ? `<div class="rb-chips" role="group" aria-label="Estimate basis">
-                  <button type="button" class="rb-chip-f" data-basis="ai" aria-pressed="true">AI-assisted<span class="rb-chip-n">${
-                    hrs(totalAi)}</span></button>
-                  <button type="button" class="rb-chip-f" data-basis="analog" aria-pressed="false">Analog<span class="rb-chip-n">${
-                    hrs(totalHours)}</span></button>
-                  ${saving > 0 ? `<span class="rb-e-saving">${saving}% less with AI in the delivery model</span>` : ""}
-                </div>`
-             : ""}
+             <span class="rb-nav-count">${basisPair(hrs(compAnalog), hrs(compAi))} draft</span></div>
+           <p class="rb-sub rb-small" style="margin:2px 0 0">Which of our areas each requirement falls to — so the right lead is in the room, and nobody else has to be.</p>
+           ${colHead(["Area", "", R("Requirements"), R("Hours")],
+                     `--rb-c1:0px;--rb-c2:${ctx.edit ? "200px" : "150px"};--rb-c3:${ctx.edit ? "150px" : "88px"}`,
+                     { noId: true })}
          <ul class="rb-rows">${comps.map((c) => {
             /* The row LEADS with our area of expertise, not with whatever the RFP
                happened to call it. A pack written before the vocabulary closed
                says "Cyber"; the reader needs to see "DevSecOps & Service
                Management", and the original wording kept underneath so the
-               mapping is auditable rather than magic. */
+               mapping is auditable rather than magic.
+
+               No "outside our ten areas" flag any more: it was read as "we can't
+               do that" — a capability denial — when it only ever meant the name
+               did not match our taxonomy. An unmapped name simply renders as
+               stated. */
             const canon = canonicalComp(c.name);
             const mapped = canon && compKey(canon) !== compKey(c.name);
             return `
@@ -1183,8 +1316,7 @@ function secTeam(p, d, ctx) {
              <span class="rb-row-text">${ctx.edit
                ? `<span${edIn(ctx, `team.competencies[name=${c.name}].name`, "")}>${esc(c.name)}</span>`
                : esc(canon || c.name)}${
-               !canon ? ` <span class="rb-src">outside our ten areas of expertise</span>`
-               : mapped ? `<br><span class="rb-meta">stated as “${esc(c.name)}”</span>` : ""}</span>
+               canon && mapped ? `<br><span class="rb-meta">stated as “${esc(c.name)}”</span>` : ""}</span>
              <span></span>
              <span class="rb-meta r">${arr(c.requirementIds).length ? esc(c.requirementIds.join(", ")) : ""}</span>
              ${ctx.edit
@@ -1192,15 +1324,13 @@ function secTeam(p, d, ctx) {
                    numIn(ctx, "team.competencies", c.name, "hours", c.hours, "name")}${
                    numIn(ctx, "team.competencies", c.name, "hoursAi", c.hoursAi, "name")}${
                    delBtn(ctx, "team.competencies", c.name, "name")}</span>`
-               : `<b class="rb-meta r" style="color:var(--rb-ink)"><span class="rb-e-analog">${
-                   hrs(hoursOf(c))}</span><span class="rb-e-ai">${hrs(aiOf(c) || hoursOf(c))}</span></b>`}
+               : `<b class="rb-meta r" style="color:var(--rb-ink)">${basisPair(hrs(hoursOf(c)), hrs(eff(c)))}</b>`}
            </div></li>`;
           }).join("")}</ul>
-          ${ctx.edit ? `<p class="rb-formula">Left box: analog hours. Right box: the same scope with AI in the delivery model.</p>` : ""}
           ${addBtn(ctx, "team.competencies", "Add a competency")}</div>`
-      : `<p class="rb-empty">No competency breakdown.</p>`)
-    +
-    (arr(t.keyPersonnel).length || ctx.edit
+      : "")
+
+    + (arr(t.keyPersonnel).length || ctx.edit
       ? `<div class="rb-group"><div class="rb-group-head"><span>Key personnel mandates</span>
            <span class="rb-nav-count">${arr(t.keyPersonnel).length}</span></div>
          <ul class="rb-rows">${arr(t.keyPersonnel).map((k, i) => `
@@ -1572,7 +1702,7 @@ function secRisks(p, d, ctx) {
 function secDecisions(p, d, ctx) {
   const ds = arr(p.decisions), pl = arr(p.parkingLot), ms = arr(p.meetings);
   if (!ds.length && !pl.length && !ms.length && !ctx.edit)
-    return head("Record") + `<p class="rb-empty">Nothing recorded yet.</p>`;
+    return head("Decision log") + `<p class="rb-empty">Nothing recorded yet.</p>`;
 
   const row = (coll, x, path, main, meta) => `
     <li data-el="${coll}-${esc(x.id || "")}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "0px"}">
@@ -1585,7 +1715,7 @@ function secDecisions(p, d, ctx) {
     `<div class="rb-group"><div class="rb-group-head"><span>${title}</span><span class="rb-nav-count">${n}</span></div>
        <ul class="rb-rows">${body}</ul>${addBtn(ctx, coll, addLabel)}</div>`;
 
-  return head("Record") +
+  return head("Decision log") +
     (ds.length || ctx.edit
       ? group("Decisions made", ds.length, ds.map((x) => row("decisions", x,
           `decisions[id=${x.id}].text`, esc(x.text || x.decision),

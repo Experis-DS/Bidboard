@@ -722,6 +722,13 @@ const NEW_ITEM = {
     hours: 0, hoursAi: 0, requirementIds: [],
   }),
   "team.keyPersonnel": () => "New mandate",
+  /* A role carries `rate` as an object because the edit paths write into
+     rate.pay / rate.bill, and setByPath will not create the intermediate. */
+  "team.plan": (p) => ({
+    id: nextId({ plan: ((p.team && p.team.plan) || []) }, "plan", "T"),
+    role: "New role", competency: "", level: "mid", geo: "us", mode: "remote",
+    count: 1, hours: 0, hoursAi: 0, rate: { pay: 0, bill: 0, basis: "" },
+  }),
   "signals.red":   () => ({ basis: "New signal", source: "" }),
   "signals.green": () => ({ basis: "New signal", source: "" }),
   "signals.soft":  () => ({ basis: "New signal", source: "" }),

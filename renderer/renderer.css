@@ -1110,3 +1110,30 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 /* ---- numeric input, and the analog/AI hour pair ---- */
 .rb-in-num { width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
 .rb-hourpair { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+
+/* ---- column headers ---- */
+/* Same grid as the rows they sit over, so a label lands exactly on its column.
+   Several tables were a wall of values with nothing naming them — the requirement
+   IDs beside each competency being the one that got reported. */
+.rb-colhead {
+  padding-bottom: 6px; border-bottom: 1px solid var(--rb-line);
+  font-size: var(--rb-t-micro); font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--rb-gray-2); align-items: end;
+}
+.rb-colhead + .rb-rows { border-top: 0; }
+.rb-colhead .r { text-align: right; }
+
+/* ---- team totals ---- */
+.rb-totals {
+  display: flex; flex-wrap: wrap; gap: 8px 28px;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--rb-line);
+  font-size: var(--rb-t-small); font-variant-numeric: tabular-nums;
+}
+.rb-totals b { color: var(--rb-gray-2); font-weight: 600; margin-right: 6px; }
+
+/* Three or four numeric boxes in one cell need to stay on one line and stay
+   narrow, or the row wraps and the grid stops lining up. */
+.rb-meta.r .rb-in-num { width: 58px; margin-left: 5px; }
+.rb-meta .rb-in { max-width: 118px; }
+/* The rate basis, under the role. Quiet — it is provenance, not content. */
+.rb-basis { color: var(--rb-gray-3); }
