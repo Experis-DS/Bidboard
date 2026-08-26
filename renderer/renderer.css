@@ -1137,3 +1137,24 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb-meta .rb-in { max-width: 118px; }
 /* The rate basis, under the role. Quiet — it is provenance, not content. */
 .rb-basis { color: var(--rb-gray-3); }
+
+/* ---- the TLDR reads as ONE column ---- */
+/* The ask paragraphs were capped at the 66ch prose measure while the deadline
+   rule, the verdict table and the zone headings all ran the full 72rem column.
+   So the prose stopped dead around 60% of the way across with everything above
+   and below it running wider — which reads as a broken layout rather than as a
+   considered measure, and it was the first thing reported on a real pursuit.
+   One width for the whole snapshot instead. 48rem keeps the ask at roughly 75
+   characters a line, which is the measure the 66ch cap was protecting, and now
+   every block on the tab shares a right edge. Lists and tables elsewhere still
+   run to 72rem — they are data, not prose. */
+.rb-snapshot { max-width: 48rem; }
+.rb-snapshot .rb-ask,
+.rb-snapshot .rb-sub,
+.rb-snapshot .rb-measure,
+.rb-snapshot .rb-verdict p { max-width: none; }
+
+/* ---- the client: who we're talking to ---- */
+.rb-contacts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
+.rb-contact { display: inline-flex; align-items: baseline; gap: 7px; }
+.rb-contact b { font-weight: 650; }

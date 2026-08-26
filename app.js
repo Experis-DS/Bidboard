@@ -732,6 +732,9 @@ const NEW_ITEM = {
   "signals.red":   () => ({ basis: "New signal", source: "" }),
   "signals.green": () => ({ basis: "New signal", source: "" }),
   "signals.soft":  () => ({ basis: "New signal", source: "" }),
+  "clientContext.contacts": (p) => ({
+    name: `New contact ${((p.clientContext && p.clientContext.contacts) || []).length + 1}`, role: "",
+  }),
   "scorecard.criteria":        (p) => ({ name: `New criterion ${arr2(p, "scorecard", "criteria").length + 1}`, weight: 0 }),
   "evaluation.criteria":       (p) => ({ name: `New criterion ${arr2(p, "evaluation", "criteria").length + 1}`, weight: 0 }),
   "scorecard.successCriteria":  () => "New success criterion",

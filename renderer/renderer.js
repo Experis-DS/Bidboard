@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.2.0";
+export const RENDERER_VERSION = "3.3.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -198,7 +198,12 @@ function deriveCoverage(pack) {
    #/b/<pursuit>/requirements links are already shared in Teams threads. New
    composite sections take the id of their dominant half and the rest resolve
    through ALIASES in show(). A tidier id set is not worth a dead link. */
-const GROUPS = ["Understand", "Decide", "Build", "Submit"];
+/* DECIDE FIRST. "Should we bid" outranks "can we build it" — the bid decision is
+   the question that gates every other question, and a reader who opens the board
+   is triaging before they are scoping. Reading order here is PRIORITY, not
+   chronology; the labels are intents, so nothing about this implies you passed
+   through Decide on your way to Understand. */
+const GROUPS = ["Decide", "Understand", "Build", "Submit"];
 
 const SECTIONS = [
   /* TLDR is ungrouped on purpose: it is the only screen that answers all four
@@ -325,6 +330,41 @@ function secSnapshot(p, d, ctx) {
     .filter(([, t]) => has(t) || ctx.edit)
     .map(([path, t]) => `<p${edIn(ctx, path, "rb-ask")}>${esc(t)}</p>`).join("");
 
+  const cc = p.clientContext || {};
+  const team = cc.team || {};
+  const contacts = arr(cc.contacts);
+  const hasClient = has(cc.business) || has(cc.problem) || has(team.name) || contacts.length;
+
+  const teamLine = [
+    has(team.name) ? `<span${ed(ctx, "clientContext.team.name")}>${esc(team.name)}</span>` : "",
+    has(team.reportsTo) ? `reporting to <span${ed(ctx, "clientContext.team.reportsTo")}>${esc(team.reportsTo)}</span>` : "",
+  ].filter(Boolean).join(", ");
+
+  /* Contacts are named people, so they key on `name` and every one is
+     add/edit/deletable — a pursuit gains contacts as it runs, and a list you
+     cannot append to stops being maintained on the first new introduction. */
+  const contactRows = contacts.map((c) => `
+    <span class="rb-contact" data-el="contact-${esc(c.name)}">
+      <b${edIn(ctx, `clientContext.contacts[name=${c.name}].name`, "")}>${esc(c.name)}</b>
+      <span${edIn(ctx, `clientContext.contacts[name=${c.name}].role`, "rb-meta")}>${esc(c.role || "role")}</span>
+      ${delBtn(ctx, "clientContext.contacts", c.name, "name")}
+    </span>`).join("");
+
+  const clientBlock = hasClient || ctx.edit
+    ? `<div class="rb-zone">
+         <div class="rb-zone-head"><span>The client</span></div>
+         <div class="rb-verdict">
+           ${has(cc.business) || ctx.edit
+             ? `<p><b>What they do</b><span${ed(ctx, "clientContext.business")}>${esc(cc.business || "")}</span></p>` : ""}
+           ${teamLine || contacts.length || ctx.edit
+             ? `<p><b>Who we're talking to</b><span>${teamLine}${
+                 contactRows ? `<span class="rb-contacts">${contactRows}</span>` : ""}${
+                 addBtn(ctx, "clientContext.contacts", "Add a contact")}</span></p>` : ""}
+           ${has(cc.problem) || ctx.edit
+             ? `<p><b>The problem they're solving</b><span${ed(ctx, "clientContext.problem")}>${esc(cc.problem || "")}</span></p>` : ""}
+         </div>
+       </div>` : "";
+
   const verdict = has(p.verdict)
     ? `<div class="rb-zone">
          <div class="rb-zone-head"><span>Our read</span></div>
@@ -377,6 +417,7 @@ function secSnapshot(p, d, ctx) {
       ${mineStrip(p, ctx)}
       ${askParas ? `<div class="rb-zone" style="margin-top:0">${askParas}</div>` : ""}
 
+      ${clientBlock}
       ${verdict}
 
       <div class="rb-zone">
