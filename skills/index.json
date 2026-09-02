@@ -3,15 +3,16 @@
     "name": "rfp",
     "slash": "/rfp",
     "file": "rfp.skill",
-    "version": null,
-    "sha": null,
-    "bytes": 0,
+    "version": "2026.08.26",
+    "sha": "87af6c0",
+    "bytes": 30969,
     "group": "start-here",
     "order": 1,
     "blurb": "Reads a folder of RFP documents and turns them into a pack you import here.",
     "thumb": "assets/skills/rfp.svg",
     "locked": false,
-    "published": false
+    "published": true,
+    "publishedAt": "2026-08-26"
   },
   {
     "name": "draft-microsite",
@@ -59,16 +60,16 @@
     "name": "go",
     "slash": "/go",
     "file": "go.skill",
-    "version": "2026.08.25",
-    "sha": "c0bc449",
-    "bytes": 197224,
+    "version": "2026.08.26",
+    "sha": "109d8da",
+    "bytes": 194165,
     "group": "owner",
     "order": 5,
     "blurb": "Stands up this site. Run once per team, by whoever owns the repo.",
     "thumb": "assets/skills/go.svg",
     "locked": true,
     "published": true,
-    "publishedAt": "2026-08-25"
+    "publishedAt": "2026-08-26"
   },
   {
     "name": "push-template",

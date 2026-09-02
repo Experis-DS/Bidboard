@@ -305,23 +305,6 @@
 .rb-person.is-heavy { border-color: var(--rb-accent); }
 .rb-person.is-heavy i { color: var(--rb-accent); font-weight: 650; }
 
-/* --- needs --- */
-/* capped: at full column width the owner and date columns drift so far right
-   they stop reading as part of the same line */
-.rb-needs { border-top: 1px solid var(--rb-line-2); max-width: 56rem; }
-.rb-needs > li {
-  display: grid; grid-template-columns: minmax(0, 1fr) 120px 92px; gap: 16px;
-  align-items: baseline; padding: 9px 0; border-bottom: 1px solid var(--rb-line-2);
-  font-size: var(--rb-t-body);
-}
-.rb-needs .rb-need-owner { color: var(--rb-gray); font-size: 13px; }
-.rb-needs .rb-need-due { color: var(--rb-gray-2); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
-.rb-needs .is-late { color: var(--rb-urgent); }
-@media (max-width: 720px) {
-  .rb-needs > li { grid-template-columns: 1fr auto; }
-  .rb-needs .rb-need-due { grid-column: 2; }
-}
-
 .rb-outlook {
   font-size: var(--rb-t-body); color: var(--rb-ink-2);
   padding: var(--rb-s2) 0 0; border-top: 1px solid var(--rb-line-2);

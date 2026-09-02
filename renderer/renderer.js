@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.3.0";
+export const RENDERER_VERSION = "3.3.1";
 export const SCHEMA_SUPPORT = { min: 1, max: 3 };
 
 /* ---------------- small helpers ---------------- */
@@ -388,17 +388,10 @@ function secSnapshot(p, d, ctx) {
         ? `<span class="rb-person is-heavy"><b>Unassigned</b><i>${load.unassigned}</i></span>` : ""}</div>`
     : `<p class="rb-empty">No roster captured yet.</p>`;
 
-  // Zone 3 — WHAT'S NEEDED
-  const blockers = arr(p.actionItems)
-    .filter((i) => i.status !== "done")
-    .sort((a, b) => (daysFromNow(a.due) ?? 9e3) - (daysFromNow(b.due) ?? 9e3))
-    .slice(0, 5);
   /* No stage label. It was self-reported and nothing kept it honest, so it went
-     stale and taught people to distrust the board. What replaces it is derived
-     and therefore always true: how much is outstanding, and how long is left. */
-  const openCount = arr(p.actionItems).filter((i) => i.status !== "done").length;
-  const unowned = arr(p.actionItems).filter((i) => i.status !== "done" && !i.owner).length;
-
+     stale and taught people to distrust the board. And no "what's needed next"
+     list: it restated the top of the Our readiness checklist in a second row
+     shape, on the one tab that is meant to be a read-out. */
   const outlook = p.signals?.winLikelihood
     ? `<div class="rb-zone rb-outlook">Outlook: <b>${esc(p.signals.winLikelihood)}</b>${
         summarizeSignals(p.signals)} <a href="${goHref("risks")}" data-goto="risks">Details&nbsp;→</a></div>`
@@ -427,22 +420,12 @@ function secSnapshot(p, d, ctx) {
         ${whoBody}
       </div>
 
-      <div class="rb-zone">
-        <div class="rb-zone-head"><span>What's needed next</span></div>
-        <p class="rb-sub rb-small" style="margin-bottom:12px"><b>${
-          openCount ? plural(openCount, "open item") : "Nothing outstanding"}</b>${
-          unowned ? ` \u00b7 ${unowned} unassigned` : ""}${
-          subDays !== null && subDays >= 0 ? ` \u2014 submission in ${plural(subDays, "day")}` : ""}</p>
-        ${blockers.length
-          ? `<ul class="rb-needs">${blockers.map((b) => {
-              const late = daysFromNow(b.due) < 0;
-              return `<li><span>${esc(b.task)}</span>
-                <span class="rb-need-owner">${b.owner ? esc(b.owner) : "unassigned"}</span>
-                <span class="rb-need-due ${late ? "is-late" : ""}">${b.due ? esc(fmtDate(b.due)) : "—"}</span></li>`;
-            }).join("")}</ul>`
-          : `<p class="rb-empty">No open action items.</p>`}
-      </div>
-
+      ${/* No "what's needed next" zone. It listed three open action items with
+            owner and due date — which is the top of the Our readiness checklist,
+            rendered a second time in a bespoke row shape, on the one tab that is
+            supposed to be a read-out. The reader who needs it is the person who
+            owns an item, and they already have the strip at the top of this tab
+            that links straight to their rows. Nothing is lost; one place gained. */""}
       ${outlook}
     </div>`;
 }
