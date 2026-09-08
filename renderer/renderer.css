@@ -1193,12 +1193,17 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb .rb-who.is-unassigned { padding-left: 9px; border-style: dashed; }
 
 /* ---- the date rail: position in time, never progress ---- */
-.rb-rail { padding: 2px 0 4px; --rb-rail-lanes: 1; }
-/* One lane of labels is 22px. The track grows only as far as the lanes actually
-   used, so an evenly spread rail stays as short as it always was. */
+.rb-rail { padding: 2px 0 4px; --rb-rail-lanes: 1; --rb-lane-h: 30px; }
+/* --rb-lane-h must clear a label at its FULL clamped height, which is two lines
+   (2 x 11px x 1.25 = 28px), not one. It was 22px — fine for the single-line
+   labels every test pack happened to have, and 6px short the moment a real
+   pursuit carried a long one: "Budgetary pricing and costed options to Angela"
+   wrapped to two lines and bled into the lane below it. Two dates on the same
+   day is the case that forces stacking, so this is the common path, not an edge.
+   The track grows only as far as the lanes actually used. */
 .rb-rail-track {
   position: relative; margin: 0 10px;
-  height: calc(24px + var(--rb-rail-lanes) * 22px);
+  height: calc(24px + var(--rb-rail-lanes) * var(--rb-lane-h));
 }
 .rb-rail-line {
   position: absolute; left: 0; right: 0; top: 7px; height: 2px;
@@ -1213,11 +1218,11 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 /* The dot never moves — only the label steps down. A leader line keeps a
    stepped label attached to the point it belongs to, which is the whole reason
    the stagger is legible rather than just scattered. */
-.rb .rb-rail-pt span { margin-top: calc(var(--rb-lane) * 22px); position: relative; }
+.rb .rb-rail-pt span { margin-top: calc(var(--rb-lane) * var(--rb-lane-h)); position: relative; }
 .rb .rb-rail-pt[style*="--rb-lane:1"] span::before,
 .rb .rb-rail-pt[style*="--rb-lane:2"] span::before {
   content: ""; position: absolute; left: 50%; bottom: 100%;
-  width: 1px; height: calc(var(--rb-lane) * 22px);
+  width: 1px; height: calc(var(--rb-lane) * var(--rb-lane-h));
   background: var(--rb-line);
 }
 .rb .rb-rail-pt i {
