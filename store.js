@@ -98,6 +98,10 @@ const idbPut = (s, v, k) => kv(s, "readwrite", (os) => os.put(v, k),
       : (v && v.briefId) ?? `auto-${++autoKey}`,
     v));
 const idbDel = (s, k) => kv(s, "readwrite", (os) => os.delete(k), (m) => m.delete(k));
+/* The KEYS, which for an autoIncrement store are the only handle on a row —
+   they are generated and appear nowhere on the row itself. getAll() and
+   getAllKeys() both return in key order, so the two lists pair up by index. */
+const idbKeys = (s) => kv(s, "readonly", (os) => os.getAllKeys(), (m) => [...m.keys()]);
 
 /* ---------------- init ---------------- */
 export async function initStore() {
@@ -390,7 +394,17 @@ export async function putPursuit({ index, pack, assets, carryDocuments = true })
       index.filesCarried = [];
       index.filesSkipped = [];
     }
-    await fs.setDoc(fs.doc(db, root, index.briefId), index, { merge: true });
+    /* NOT merged. The index doc is derived from the pack in full, every time,
+       so a merge could only ever preserve a field the current pack no longer
+       has — a requirement count from a pack whose requirements were dropped by
+       an amendment, an industry the runner corrected, an outcome cleared. Those
+       read as live values on the card and there is no way to clear one short of
+       deleting the pursuit. The local write below has always replaced the whole
+       record, so this also stops shared and local mode disagreeing about what a
+       re-import means. The three fields onDerive owns (readiness, counts,
+       responseLift) are recomputed and written back the next time anyone opens
+       the brief, and readiness and counts are in `index` already. */
+    await fs.setDoc(fs.doc(db, root, index.briefId), index);
   }
   // Also kept locally, which makes the importer's own first open instant and
   // keeps the Document Map working with no network at all.
@@ -648,6 +662,21 @@ export async function deletePursuit(briefId) {
   await idbDel("packs", briefId);
   await idbDel("elements", briefId);
   await idbDel("checkpoints", briefId);
-  const acts = (await idbAll("activity")) || [];
-  await Promise.all(acts.filter((a) => a.briefId === briefId).map((a) => idbDel("activity", a.id ?? a.at)));
+  /* The activity store is autoIncrement: a row's key is a generated number that
+     is nowhere on the row, so deleting by `a.id ?? a.at` matched nothing and
+     every log line for a deleted pursuit stayed in this browser — waiting to be
+     re-read the moment the same briefId was imported again, which is the local
+     half of the resurrection the Firestore loop above exists to prevent. */
+  const [acts, actKeys] = await Promise.all([idbAll("activity"), idbKeys("activity")]);
+  await Promise.all((actKeys || [])
+    .filter((_, i) => (acts || [])[i] && acts[i].briefId === briefId)
+    .map((k) => idbDel("activity", k)));
+
+  /* Assets are keyed `${briefId}/${path}` and were never cleared at all, so a
+     document-heavy pursuit left its carried files behind in every browser that
+     had opened it. */
+  const assetKeys = (await idbKeys("assets")) || [];
+  await Promise.all(assetKeys
+    .filter((k) => String(k).startsWith(`${briefId}/`))
+    .map((k) => idbDel("assets", k)));
 }

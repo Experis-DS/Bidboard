@@ -135,7 +135,6 @@
    columns of the same grid. Do not "improve" this.
    ============================================================ */
 .rb-snapshot > .rb-zone { display: block; }
-.rb-snapshot > .rb-zone.rb-pulse { display: grid; }   /* the one exception */
 .rb-zone + .rb-zone { margin-top: var(--rb-s5); }
 
 /* --- masthead --- */
@@ -204,7 +203,12 @@
 .rb-ask strong, .rb-ask b { color: var(--rb-ink); font-weight: 650; }
 
 /* --- pulse row: the ONLY horizontal grouping, exactly two tiles --- */
-.rb-pulse { grid-template-columns: 1fr 1fr; gap: var(--rb-s3); align-items: stretch; }
+/* display:grid used to be set only on .rb-snapshot > .rb-zone.rb-pulse, so the
+   pulse row was a two-column row on Summary and NOTHING on Our readiness — the
+   grid-template-columns below had no grid to apply to, and Response readiness
+   and Critical path stacked full-width on top of each other with their borders
+   touching. The rule belongs to the component, not to one of its two homes. */
+.rb-pulse { display: grid; grid-template-columns: 1fr 1fr; gap: var(--rb-s3); align-items: stretch; }
 @media (max-width: 900px) { .rb-pulse { grid-template-columns: 1fr; } }
 
 .rb-card { border: 1px solid var(--rb-line); border-radius: 12px; background: var(--rb-bg); }
@@ -807,6 +811,18 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 
 .rb-list-body[hidden] { display: none; }
 
+/* Q-### back-references, sitting inline after the requirement they belong to.
+   Small, bordered, monospaced: they read as identifiers rather than as more of
+   the sentence, and a requirement with three open questions against it says so
+   at a glance without a column of its own. */
+.rb-qrefs { display: inline-flex; flex-wrap: wrap; gap: 5px; margin-left: 9px; }
+.rb .rb-qrefs a {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--rb-t-micro); line-height: 1.7; color: var(--rb-gray-2);
+  border: 1px solid var(--rb-line); border-radius: 5px; padding: 0 5px; text-decoration: none;
+}
+.rb .rb-qrefs a:hover { color: var(--rb-accent); border-color: var(--rb-accent); }
+
 .rb-collapse {
   all: unset; cursor: pointer; font: inherit; font-weight: 600;
   display: inline-flex; align-items: center; gap: 6px;
@@ -1133,7 +1149,14 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
    characters a line, which is the measure the 66ch cap was protecting, and now
    every block on the tab shares a right edge. Lists and tables elsewhere still
    run to 72rem — they are data, not prose. */
-.rb-snapshot { max-width: 48rem; }
+/* Full width. The 48rem cap was added to stop the ask prose running to a 72rem
+   measure while the rule above it and the verdict table beneath it ran wider —
+   a real problem, solved at the wrong level: it narrowed the whole tab, so the
+   one screen everybody reads used about two thirds of the pane and the rest of
+   the brief did not. Summary now shares the column with every other section;
+   the prose blocks inside it keep their own measure below. */
+.rb-snapshot { max-width: none; }
+.rb-snapshot .rb-ask { max-width: 62rem; }
 .rb-snapshot .rb-ask,
 .rb-snapshot .rb-sub,
 .rb-snapshot .rb-measure,
@@ -1219,7 +1242,16 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb-rail { display: grid; gap: 10px; }
 /* 10px of margin, not 6: a dot is 9px wide plus its hit padding and is centred
    on its position, so the first and last hung past the track ends. */
-.rb-rail-track { position: relative; height: 26px; margin: 0 10px; }
+/* The track is sized in PIXELS PER DAY and scrolls, rather than fitting the
+   pane. A pursuit spanning 19 months on a fixed axis puts everything happening
+   this month inside 4% of the width; at 7px a day the same pursuit is a 4000px
+   track the reader pans, and the dates a fortnight apart are a legible 100px
+   apart. Never narrower than the pane, so a short pursuit still fills it. */
+.rb-rail-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
+.rb-rail-track {
+  position: relative; height: 26px; margin: 0 10px;
+  width: max(calc(100% - 20px), calc(var(--rb-rail-days, 30) * var(--rb-rail-ppd, 7px)));
+}
 .rb-rail-line {
   position: absolute; left: 0; right: 0; bottom: 5px; height: 2px;
   background: var(--rb-line); border-radius: 2px;
@@ -1233,6 +1265,11 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
   background: var(--rb-bg); border: 2px solid var(--rb-gray-3);
 }
 .rb .rb-rail-pt.is-done i { background: var(--rb-line); border-color: var(--rb-line); }
+/* Their dates are drawn hollow and lighter. The distinction is weight, not a
+   second colour — the two-colour key this rail used to carry was removed for
+   exactly that reason. */
+.rb .rb-rail-pt.is-theirs i { border-color: var(--rb-line); background: var(--rb-bg); }
+.rb .rb-rail-pt.is-theirs.is-done i { background: var(--rb-line); }
 .rb .rb-rail-pt.is-sub  { z-index: 2; }
 .rb .rb-rail-pt.is-sub i { background: var(--rb-accent); border-color: var(--rb-accent); }
 .rb .rb-rail-pt:hover i { border-color: var(--rb-accent); }
@@ -1250,6 +1287,8 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
   font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
   color: var(--rb-urgent); white-space: nowrap;
 }
+.rb-rail-today.is-start b { left: 0; transform: none; }
+.rb-rail-today.is-end b { left: auto; right: 0; transform: none; }
 .rb-rail.is-past .rb-rail-line { opacity: .6; }
 
 /* The key. Wraps at any width, so nothing is ever truncated and nothing can
@@ -1283,26 +1322,11 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb .rb-rail-key .is-done i { background: var(--rb-line); border-color: var(--rb-line); }
 .rb .rb-rail-key .is-done b { color: var(--rb-gray-2); font-weight: 550; }
 
-/* The client's program, folded. Six dates that are real but not actionable this
-   month: shown, so nobody re-reads the RFP to find them; closed, so they do not
-   push the work off the top of the screen. */
-.rb-rail-more > summary {
-  display: inline-flex; align-items: center; gap: 7px; cursor: pointer; width: fit-content;
-  font-size: var(--rb-t-small); color: var(--rb-gray-2); list-style: none; padding: 2px 0;
-}
-.rb-rail-more > summary::-webkit-details-marker { display: none; }
-.rb-rail-more > summary::before {
-  content: ""; width: 0; height: 0; border: 4px solid transparent;
-  border-left-color: var(--rb-gray-3); transition: transform .12s ease;
-}
-.rb-rail-more[open] > summary::before { transform: rotate(90deg) translateX(1px); }
-.rb-rail-more > summary:hover { color: var(--rb-ink); }
-.rb-rail-more > summary span { font-variant-numeric: tabular-nums; }
-.rb-rail-key.is-theirs { margin-top: 8px; padding-left: 15px; }
-/* Their dates are not ours to hit, so they are drawn hollow. The distinction is
-   weight, not a second color — the two-color key that used to sit on this rail
-   was removed for exactly that reason. */
-.rb-rail-key.is-theirs i { border-color: var(--rb-line); }
+/* The client's program is no longer a second, folded list under the first. It
+   is in the one key, in date order, drawn hollow: their dates are not ours to
+   hit. The distinction is weight, not a second colour. */
+.rb .rb-rail-key .is-theirs i { border-color: var(--rb-line); background: var(--rb-bg); }
+.rb .rb-rail-key .is-theirs b { font-weight: 550; color: var(--rb-ink-2); }
 
 /* ---- tabs: the views inside one job ---- */
 .rb-tabs {

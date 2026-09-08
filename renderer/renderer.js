@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.4.2";
+export const RENDERER_VERSION = "3.5.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -27,7 +27,21 @@ const has = (v) => v !== undefined && v !== null && v !== "" && !(Array.isArray(
 const DAY = 864e5;
 const today = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const parseDate = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : d; };
-const daysFromNow = (v) => { const d = parseDate(v); return d === null ? null : Math.ceil((d - today()) / DAY); };
+/* LOCAL CALENDAR DAYS. Math.ceil over a millisecond difference returns -0 for a
+   date that passed less than a day ago at any positive UTC offset, and `-0 < 0`
+   is FALSE — which is the test every "late" check on this page makes. And a
+   date-only pack value ("2026-01-30") parses as UTC midnight, so it was off by
+   the reader's offset in either direction. Parse date-only as local, reduce
+   everything else to the local day it falls on, and round, because a DST day is
+   23 or 25 hours long. Kept in step with localDay() in the hub's app.js. */
+const localDay = (v) => {
+  const s = String(v).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  const d = parseDate(s);
+  return d === null ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
+const daysFromNow = (v) => { if (!v) return null; const a = localDay(v); return a === null ? null : Math.round((a - today()) / DAY); };
 
 const fmtDate = (v) => {
   const d = parseDate(v);
@@ -212,15 +226,21 @@ function deriveRail(pack) {
   const ours = all.filter((r) => r.kind === "response");
   const theirs = all.filter((r) => r.kind !== "response");
 
-  /* EVERY date is listed. Only OUR dates are PLOTTED, and that is a scale
-     decision rather than an editorial one. On this pursuit the dates run from 6
-     days ago to 570 days out; on one linear axis the four that matter this month
-     collapse into 3.6% of the width and land on top of each other. The client's
-     program is real and belongs on the page — it is in the key underneath, with
-     its dates — but drawing a go-live 19 months out beside a submission in 13
-     days is the exact failure the two-clock split exists to stop: the far date
-     reads as slack on the near one. */
-  const plot = ours.length >= 2 ? ours : [];
+  /* EVERY date is plotted, and the track SCROLLS. It used to plot our response
+     dates only, because on one FIXED-WIDTH linear axis a pursuit running from 6
+     days ago to 570 days out collapses the four dates that matter this month
+     into 3.6% of the width — the far date then reads as slack on the near one,
+     which is the failure the two-clock split exists to stop.
+
+     Scrolling dissolves that trade. The axis is no longer bounded by the pane:
+     it is sized in PIXELS PER DAY, so a long program is a long track rather than
+     a squashed one, near dates keep real distance between them, and the reader
+     pans to the part of the year they are asking about. The rail still shows
+     POSITION and never progress — nothing on it is hand-maintained, so nothing
+     on it can rot. `span` is handed to the CSS as the day count so the track can
+     size itself; the dots stay in percentages of that span, so a cluster still
+     looks like a cluster at every width. */
+  const plot = all.length >= 2 ? all : [];
   let track = null;
   if (plot.length) {
     const first = Math.min(plot[0].days, 0);
@@ -228,9 +248,9 @@ function deriveRail(pack) {
     const span = last - first || 1;
     const at = (dd) => Math.max(0, Math.min(100, ((dd - first) / span) * 100));
     track = { rows: plot.map((r) => ({ ...r, at: at(r.days) })), todayAt: at(0),
-              allPast: plot[plot.length - 1].days < 0 };
+              span, allPast: plot[plot.length - 1].days < 0 };
   }
-  return { ok: true, track, ours, theirs, total: all.length };
+  return { ok: true, track, all, ours, theirs, total: all.length };
 }
 
 
@@ -367,8 +387,21 @@ function deriveCoverage(pack) {
    Summary is entry one rather than chrome floating above the groups, because
    ungrouped meant skipped: "it's not inside a substructure." It is also no
    longer called TLDR, which told a first-time reader nothing about what was
-   behind it. Understand now sits ahead of Decide: the triage read happens on
-   Summary itself, so by the time you leave it you are scoping, not triaging.
+   behind it.
+
+   DECIDE COMES BEFORE UNDERSTAND. "Should we bid at all" outranks "can we
+   deliver it" — the bid decision gates every other question, and the reader who
+   opens a brief cold is triaging, not scoping. Understand briefly led on the
+   grounds that the triage read already happens on Summary; that is true and it
+   is still not a reason to put the evidence for the call AFTER the work that
+   only matters if the call goes our way. Reading order here is PRIORITY, not
+   chronology.
+
+   BUILD IS CALLED "BID". Build named the wrong noun: on a pursuit the thing
+   being built is the RESPONSE, and "Build" invited people to read it as the
+   delivery work we would do if we won — which is Understand's Delivery scope,
+   two entries away. Bid says whose work it is. The entry id stays `build` so
+   every shared #/b/<pursuit>/build link keeps landing here.
 
    THE LABELS NAME INTENTS, NEVER STATES. No active entry, no progress, no
    checkmarks, no numbering, and nothing in the pack may drive how an entry
@@ -379,9 +412,9 @@ function deriveCoverage(pack) {
    paragraph is the reason. Do not delete it and then add the indicator. */
 const ENTRIES = [
   { id: "summary",    label: "Summary" },
-  { id: "understand", label: "Understand" },
   { id: "decide",     label: "Decide" },
-  { id: "build",      label: "Build" },
+  { id: "understand", label: "Understand" },
+  { id: "build",      label: "Bid" },
   { id: "submit",     label: "Submit" },
 ];
 
@@ -944,7 +977,7 @@ function listBlock(ctx, key, title, rows, opts = {}) {
   const sev = opts.axis === "sev";
   const n = (v) => rows.filter((r) => (sev ? r.sev : r.status) === v).length;
   const owners = new Set(rows.map((r) => r.owner).filter(Boolean));
-  const collapsed = ctx.collapsed.has(key);
+  const open = ctx.opened.has(key);
 
   const chip = (id, label, count, on) => count === 0 && id !== "all" ? "" :
     `<button type="button" class="rb-chip-f" data-lchip="${id}" data-list="${esc(key)}"
@@ -962,10 +995,10 @@ function listBlock(ctx, key, title, rows, opts = {}) {
   return `<div class="rb-group rb-list" data-list="${esc(key)}" data-filter="all">
     <div class="rb-group-head">
       <button type="button" class="rb-collapse" data-lcollapse="${esc(key)}"
-        aria-expanded="${!collapsed}">${esc(title)}</button>
+        aria-expanded="${open}">${esc(title)}</button>
       <span class="rb-nav-count">${plural(rows.length, opts.unit || "item")}</span>
     </div>
-    <div class="rb-list-body"${collapsed ? " hidden" : ""}>
+    <div class="rb-list-body"${open ? "" : " hidden"}>
       ${/* Standing rule: every list gets filters. Offer them when there is
             actually something to filter BY — more than one status present, or a
             list long enough that scanning it is work. A single chip row over
@@ -995,6 +1028,22 @@ const statusPill = (s) => `<span class="rb-status" data-s="${s}">${STATUS_LABEL[
    columns — "competencies this RFP demands has no headers above the R-001 R-002
    column". Same grid as the rows beneath it, so the labels sit exactly over what
    they label; cells are passed in the same order and count as the row's. */
+/* A group that is not a list still opens collapsed, through the same control
+   and the same stored set — so a section reads as one set of headings whether
+   its blocks happen to be filterable lists or plain tables. `.rb-list-body` is
+   reused deliberately: one class, one hidden attribute, one toggle handler. */
+function groupBlock(ctx, key, title, countHtml, body, cls = "", attrs = "") {
+  const open = ctx.opened.has(key);
+  return `<div class="rb-group rb-list${cls ? " " + cls : ""}" data-list="${esc(key)}"${attrs ? " " + attrs : ""}>
+    <div class="rb-group-head">
+      <button type="button" class="rb-collapse" data-lcollapse="${esc(key)}"
+        aria-expanded="${open}">${title}</button>
+      ${countHtml || ""}
+    </div>
+    <div class="rb-list-body"${open ? "" : " hidden"}>${body}</div>
+  </div>`;
+}
+
 function colHead(cols, gridVars, opts = {}) {
   return `<div class="rb-colhead ${opts.noId ? "rb-row no-id" : "rb-row"}" style="${gridVars}" aria-hidden="true">${
     cols.map((c) => `<span class="${c && c.r ? "r" : ""}">${esc(c && c.t !== undefined ? c.t : (c || ""))}</span>`).join("")}</div>`;
@@ -1385,7 +1434,7 @@ function secEvaluation(p, d, ctx) {
        must-haves and explicit rule-outs, often said aloud at kickoff rather
        than written in the RFP. */
     (success.length || ctx.edit
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Criteria for success</span><span class="rb-nav-count">${success.length}</span></div>
+      ? groupBlock(ctx, "success", "Criteria for success", `<span class="rb-nav-count">${success.length}</span>`, `
          <ul class="rb-rows">${success.map((g, i) => `
            <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "0px"}">
              <span${edIn(ctx, typeof g === "string"
@@ -1395,7 +1444,7 @@ function secEvaluation(p, d, ctx) {
              <span></span><span></span>
              <span class="rb-meta r">${delBtn(ctx, `${root}.successCriteria`, String(i), "@index")}</span>
            </div></li>`).join("")}</ul>
-         ${addBtn(ctx, `${root}.successCriteria`, "Add a criterion")}</div>` : "") +
+         ${addBtn(ctx, `${root}.successCriteria`, "Add a criterion")}`) : "") +
     (has(e.guidance)
       ? `<div class="rb-verdict" style="margin-top:var(--rb-s4)"><p><b>Where to over-invest</b><span${
           ed(ctx, p.scorecard ? "scorecard.guidance" : "evaluation.guidance")}>${esc(e.guidance)}</span></p></div>` : "");
@@ -1406,6 +1455,31 @@ function secRequirements(p, d, ctx) {
   const reqs = arr(p.requirements);
   if (!reqs.length) return "";
   const themes = [...new Set(reqs.map((r) => r.theme || "Ungrouped"))];
+
+  /* Q-### BACK-REFERENCES. A question has always carried the R-### it came from;
+     the requirement carried nothing back, so the thread could only be followed
+     one way — you could get from a question to its requirement and then had to
+     find your own way back, which on a 47-row list means scrolling for a number
+     you already had. Both ends now link, so reading the two together is what
+     deepens a position on the bid rather than what costs you your place.
+
+     The numbering comes from orderedQuestions(), the same function the Questions
+     tab numbers with, so Q-7 is the same row on both screens. The stable q.id
+     addresses the row; the running number is only what is printed — renumbering
+     the display can never break a link. */
+  const qByReq = new Map();
+  for (const q of orderedQuestions(p).rows) {
+    if (!q.requirementId) continue;
+    if (!qByReq.has(q.requirementId)) qByReq.set(q.requirementId, []);
+    qByReq.get(q.requirementId).push(q);
+  }
+  const qRefs = (id) => {
+    const list = qByReq.get(id) || [];
+    if (!list.length) return "";
+    return `<span class="rb-qrefs">${list.map((q) =>
+      `<a href="${goHref("questions")}" data-goto="questions" data-el="question-${esc(q.id)}"
+          title="${esc(q.text)}">Q-${q.no}</a>`).join("")}</span>`;
+  };
 
   const rowFor = (r) => ({
     status: rowStatus(r, { mandatoryMatters: true }),
@@ -1421,7 +1495,7 @@ function secRequirements(p, d, ctx) {
                  ${has(r.verbatim) ? `<p style="white-space:pre-wrap">${esc(r.verbatim)}</p>` : ""}
                  <p class="rb-src" style="margin-top:8px">${srcLink(r.source, ctx)}</p>
                </div></details>`
-          : esc(r.text)}</span>
+          : esc(r.text)}${qRefs(r.id)}</span>
         <span class="rb-meta r">${ctx.edit
           ? ownerSelect(ctx, r.id, "requirements", r.owner)
           : esc(r.owner || "unowned")}</span>
@@ -1571,12 +1645,10 @@ function secTeam(p, d, ctx) {
 
     /* ---------- the proposed team ---------- */
     (plan.length || ctx.edit
-      ? `<div class="rb-group rb-effort" data-basis="${hasAi ? "ai" : "analog"}">
-           <div class="rb-group-head"><span>Proposed team</span>
-             <span class="rb-nav-count">${plural(heads, "person", "people")} · ${
-               basisPair(hrs(planAnalog), hrs(planAi))}${
-               has(t.distribution) ? ` · ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span></div>
-
+      ? groupBlock(ctx, "team:plan", "Proposed team",
+          `<span class="rb-nav-count">${plural(heads, "person", "people")} · ${
+             basisPair(hrs(planAnalog), hrs(planAi))}${
+             has(t.distribution) ? ` · ${esc(DIST[t.distribution] || t.distribution)}` : ""}</span>`, `
            ${hasAi
              ? `<div class="rb-chips" role="group" aria-label="Estimate basis">
                   <button type="button" class="rb-chip-f" data-basis="ai" aria-pressed="true">AI-assisted<span class="rb-chip-n">${
@@ -1628,29 +1700,37 @@ function secTeam(p, d, ctx) {
            ${ctx.edit
              ? `<p class="rb-formula">Boxes, left to right: heads, analog hours, AI-assisted hours, pay rate, bill rate. Rates are a market estimate from /RFP — correct them.</p>`
              : ""}
-           ${addBtn(ctx, "team.plan", "Add a role")}</div>`
+           ${addBtn(ctx, "team.plan", "Add a role")}`, "rb-effort", `data-basis="${hasAi ? "ai" : "analog"}"`)
       : `<p class="rb-empty">No team proposed yet.</p>`)
 
     /* ---------- who is already named ---------- */
     + (arr(p.roster).length || ctx.edit
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Named so far</span>
-           <span class="rb-nav-count">${plural(arr(p.roster).length, "person", "people")}</span></div>
-         ${colHead(["Person", "", "", R("Role on the bid")], "--rb-c1:0px;--rb-c2:0px;--rb-c3:200px", { noId: true })}
+      ? groupBlock(ctx, "team:roster", "Named so far",
+          `<span class="rb-nav-count">${plural(arr(p.roster).length, "person", "people")}</span>`, `
+         ${/* The role sits in the THIRD cell, so it is --rb-c2 that has to carry
+               it. These vars read c1:0 c2:0 c3:200 with the header label in the
+               fourth cell, which put "Role on the bid" over the delete-button
+               column and the role values themselves in a column 0px wide: every
+               role broke one word per line down a 40px gutter while its own
+               heading sat to the right of it. Cells and vars now line up, and
+               the role reads left-aligned because it is a phrase, not a
+               figure. */""}
+         ${colHead(["Person", "", "Role on the bid", ""],
+                   `--rb-c1:0px;--rb-c2:minmax(0,260px);--rb-c3:${ctx.edit ? "40px" : "0px"}`, { noId: true })}
          <ul class="rb-rows">${arr(p.roster).map((r) => `
-           <li data-el="roster-${esc(r.name)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "200px"}">
+           <li data-el="roster-${esc(r.name)}"><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:minmax(0,260px);--rb-c3:${ctx.edit ? "40px" : "0px"}">
              <span class="rb-row-text"><b${edIn(ctx, `roster[name=${r.name}].name`, "")}>${esc(r.name)}</b>${
                ctx.edit ? `<br><span${edIn(ctx, `roster[name=${r.name}].role`, "rb-meta")}>${esc(r.role || "role")}</span>` : ""}</span>
              <span></span>
-             <span class="rb-meta r">${ctx.edit ? "" : esc(r.role || "")}</span>
+             <span class="rb-meta">${ctx.edit ? "" : esc(r.role || "")}</span>
              <span class="rb-meta r">${delBtn(ctx, "roster", r.name, "name")}</span>
-           </div></li>`).join("")}</ul>${addBtn(ctx, "roster", "Add a person")}</div>`
+           </div></li>`).join("")}</ul>${addBtn(ctx, "roster", "Add a person")}`)
       : "")
 
     /* ---------- the mapping layer ---------- */
     + (comps.length || ctx.edit
-      ? `<div class="rb-group rb-effort" data-basis="${hasAi ? "ai" : "analog"}">
-           <div class="rb-group-head"><span>Competencies this RFP demands</span>
-             <span class="rb-nav-count">${basisPair(hrs(compAnalog), hrs(compAi))} draft</span></div>
+      ? groupBlock(ctx, "team:comps", "Competencies this RFP demands",
+          `<span class="rb-nav-count">${basisPair(hrs(compAnalog), hrs(compAi))} draft</span>`, `
            <p class="rb-sub rb-small" style="margin:2px 0 0">Which of our areas each requirement falls to — so the right lead is in the room, and nobody else has to be.</p>
            ${colHead(["Area", "", R("Requirements"), R("Hours")],
                      `--rb-c1:0px;--rb-c2:${ctx.edit ? "200px" : "150px"};--rb-c3:${ctx.edit ? "150px" : "88px"}`,
@@ -1685,31 +1765,44 @@ function secTeam(p, d, ctx) {
                : `<b class="rb-meta r" style="color:var(--rb-ink)">${basisPair(hrs(hoursOf(c)), hrs(eff(c)))}</b>`}
            </div></li>`;
           }).join("")}</ul>
-          ${addBtn(ctx, "team.competencies", "Add a competency")}</div>`
+          ${addBtn(ctx, "team.competencies", "Add a competency")}`, "rb-effort", `data-basis="${hasAi ? "ai" : "analog"}"`)
       : "")
 
     + (arr(t.keyPersonnel).length || ctx.edit
-      ? `<div class="rb-group"><div class="rb-group-head"><span>Key personnel mandates</span>
-           <span class="rb-nav-count">${arr(t.keyPersonnel).length}</span></div>
+      ? groupBlock(ctx, "team:keyp", "Key personnel mandates",
+          `<span class="rb-nav-count">${arr(t.keyPersonnel).length}</span>`, `
          <ul class="rb-rows">${arr(t.keyPersonnel).map((k, i) => `
            <li><div class="rb-row no-id" style="--rb-c1:0px;--rb-c2:0px;--rb-c3:${ctx.edit ? "40px" : "0px"}">
              <span${edIn(ctx, typeof k === "string" ? `team.keyPersonnel[${i}]` : `team.keyPersonnel[${i}].text`, "rb-row-text")}>${
                esc(typeof k === "string" ? k : k.text || k.name)}</span>
              <span></span><span></span>
              <span class="rb-meta r">${delBtn(ctx, "team.keyPersonnel", String(i), "@index")}</span>
-           </div></li>`).join("")}</ul>${addBtn(ctx, "team.keyPersonnel", "Add a mandate")}</div>`
+           </div></li>`).join("")}</ul>${addBtn(ctx, "team.keyPersonnel", "Add a mandate")}`)
       : "");
 }
 
 /* Collapsed sections are a viewing preference, not content — they belong to the
    person, not the pack. localStorage can throw in a sandboxed frame, so every
    access is guarded rather than assumed. */
-const collapseKey = (briefId) => `rb.qcollapse.${briefId || "brief"}`;
-function readCollapsed(briefId) {
+/* EVERYTHING OPENS COLLAPSED, and the set records what this person has OPENED.
+   It used to record what they had closed, which made expanded the default —
+   so Our readiness opened as eight owner groups of rows, Effort & team as four
+   full tables, and Delivery scope as every theme at once. A tab that opens as a
+   wall is a tab you scroll rather than read; collapsed, the same tab opens as
+   its own contents page — every heading with its count, and you open the one
+   you came for. Nothing is hidden that a click does not reveal, deep links
+   open what they land on, and the choice is remembered per person per pursuit,
+   so the second visit opens where you work.
+
+   The storage key changed with the meaning. Reusing rb.qcollapse would have read
+   every previously-closed group as a request to open it — an inverted
+   preference is worse than none. */
+const collapseKey = (briefId) => `rb.gopen.${briefId || "brief"}`;
+function readOpened(briefId) {
   try { return new Set(JSON.parse(localStorage.getItem(collapseKey(briefId)) || "[]")); }
   catch { return new Set(); }
 }
-function writeCollapsed(briefId, set) {
+function writeOpened(briefId, set) {
   try { localStorage.setItem(collapseKey(briefId), JSON.stringify([...set])); } catch {}
 }
 
@@ -1789,16 +1882,16 @@ function secQuestions(p, d, ctx) {
         <span class="rb-meta r">${ctx.edit
           ? topicSelect(q) + delBtn(ctx, "questions", q.id)
           : (q.requirementId
-            ? `<a href="${goHref("compliance")}" data-goto="requirements" data-el="req-${esc(q.requirementId)}">${esc(q.requirementId)}</a>` : "")}</span>
+            ? `<a href="${goHref("compliance")}" data-goto="compliance" data-el="req-${esc(q.requirementId)}">${esc(q.requirementId)}</a>` : "")}</span>
       </div></li>`).join("");
 
-  const collapsed = readCollapsed(p.briefId);
+  const opened = ctx.opened;
   return headBlock + topics.map((t) => {
     const n = qs.filter((q) => topicOf(q) === t).length;
     // An empty section is only shown while editing — a reader has no use for a
     // heading with nothing under it.
     if (!n && !ctx.edit) return "";
-    return `<details class="rb-group rb-qgroup" data-topic="${esc(t)}"${collapsed.has(t) ? "" : " open"}>
+    return `<details class="rb-group rb-qgroup" data-topic="${esc(t)}"${opened.has(t) ? " open" : ""}>
       <summary class="rb-group-head">
         <span class="rb-chev" aria-hidden="true"></span>
         ${ctx.edit ? `<span class="rb-sgrip" draggable="true" title="Drag to reorder this section"
@@ -2070,8 +2163,8 @@ function secDecisions(p, d, ctx) {
     </div></li>`;
 
   const group = (title, n, body, coll, addLabel) =>
-    `<div class="rb-group"><div class="rb-group-head"><span>${title}</span><span class="rb-nav-count">${n}</span></div>
-       <ul class="rb-rows">${body}</ul>${addBtn(ctx, coll, addLabel)}</div>`;
+    groupBlock(ctx, `dec:${coll}`, title, `<span class="rb-nav-count">${n}</span>`,
+      `<ul class="rb-rows">${body}</ul>${addBtn(ctx, coll, addLabel)}`);
 
   return head("Decision log") +
     (ds.length || ctx.edit
@@ -2227,15 +2320,17 @@ function pursuitHeader(p, d, ctx) {
      them legible in that space. */
   const t = rail.ok ? rail.track : null;
 
+  const marks = (r) => `${r.submission ? " is-sub" : ""}${r.kind === "program" ? " is-theirs" : ""}${
+    r.days < 0 ? " is-done" : ""}`;
+
   const dot = (r) => `
-    <a class="rb-rail-pt${r.submission ? " is-sub" : ""}${r.days < 0 ? " is-done" : ""}"
+    <a class="rb-rail-pt${marks(r)}"
        style="left:${r.at.toFixed(2)}%" href="${goHref("timeline")}" data-goto="timeline"
        tabindex="-1" aria-hidden="true"
        title="${esc(r.label)} · ${esc(fmtDate(r.date))} · ${relDays(r.days)}"><i></i></a>`;
 
   const keyRow = (r) => `
-    <li><a href="${goHref("timeline")}" data-goto="timeline"
-           class="${r.submission ? "is-sub" : ""}${r.days < 0 ? " is-done" : ""}">
+    <li><a href="${goHref("timeline")}" data-goto="timeline" class="${marks(r).trim()}">
       <i aria-hidden="true"></i>
       <b>${esc(r.label)}</b>
       <span>${esc(fmtDate(r.date))} · ${relDays(r.days)}</span>
@@ -2243,25 +2338,31 @@ function pursuitHeader(p, d, ctx) {
 
   const track = rail.ok ? `
     <div class="rb-rail${t && t.allPast ? " is-past" : ""}">
-      ${t ? `<div class="rb-rail-track" aria-hidden="true">
+      ${t ? `<div class="rb-rail-scroll" data-today="${t.todayAt.toFixed(2)}">
+        <div class="rb-rail-track" style="--rb-rail-days:${t.span}" aria-hidden="true">
         <span class="rb-rail-line"></span>
-        <span class="rb-rail-today" style="left:${t.todayAt.toFixed(2)}%"><i></i><b>Today</b></span>
+        ${/* The label is centred on the marker, and the track now sits inside a
+              scroll container that CLIPS — so on a pursuit where today is at one
+              end of the span (the common case: a live bid with everything still
+              ahead of it) half of "Today" was cut off by the container edge. It
+              hung harmlessly outside before there was anything to clip it. At
+              the ends the label anchors instead of centring. */""}
+        <span class="rb-rail-today${t.todayAt < 4 ? " is-start" : t.todayAt > 96 ? " is-end" : ""}"
+              style="left:${t.todayAt.toFixed(2)}%"><i></i><b>Today</b></span>
         ${/* Two dates on one day draw one dot. The submission paints last so it
               is the one on top, which is the right one to see. */""}
         ${t.rows.filter((r) => !r.submission).map(dot).join("")}
         ${t.rows.filter((r) => r.submission).map(dot).join("")}
+        </div>
       </div>` : ""}
-      ${rail.ours.length ? `<ol class="rb-rail-key">${rail.ours.map(keyRow).join("")}</ol>` : ""}
-      ${/* The client's program is folded, not dropped. Six dates on this pursuit,
-            none actionable this month, so opening the header with them pushes the
-            work off the screen — but a date the board holds and does not show is
-            a date somebody re-reads the RFP for. Native <details>: no JS, no
-            stored state, no listener. */""}
-      ${rail.theirs.length ? `
-        <details class="rb-rail-more">
-          <summary>Client's program<span>${plural(rail.theirs.length, "date")}</span></summary>
-          <ol class="rb-rail-key is-theirs">${rail.theirs.map(keyRow).join("")}</ol>
-        </details>` : ""}
+      ${/* ONE key, every date, in date order. The client's program used to sit
+            under it in a second <details> holding a second list — which read as
+            a duplicate of the rows above it, stacked a bullet list into the
+            header, and made the reader hold two orderings at once to answer a
+            question about one calendar. The program dates are not dropped: they
+            are in this list, drawn hollow, and now plotted on the track as well,
+            which is what the scroll made possible. */""}
+      ${rail.all.length ? `<ol class="rb-rail-key">${rail.all.map(keyRow).join("")}</ol>` : ""}
     </div>` : "";
 
   return `<div class="rb-hdr">${people}${track}</div>`;
@@ -2317,7 +2418,7 @@ export function renderBrief(pack, mount, opts = {}) {
     /* Collapsed groups and "Mine" are viewing preferences, not content — they
        belong to the person, not the pack. me is supplied by the host app; with
        no name the Mine chip is simply not offered rather than shown broken. */
-    collapsed: readCollapsed(pack.briefId),
+    opened: readOpened(pack.briefId),
     me: o.me || "",
     canTick: !!o.onEdit,
     docByName: (n) => docsByName[n] || null,
@@ -2434,8 +2535,8 @@ export function renderBrief(pack, mount, opts = {}) {
       const nowOpen = col.getAttribute("aria-expanded") !== "true";
       col.setAttribute("aria-expanded", String(nowOpen));
       if (body) body.hidden = !nowOpen;
-      if (nowOpen) ctx.collapsed.delete(key); else ctx.collapsed.add(key);
-      writeCollapsed(pack.briefId, ctx.collapsed);
+      if (nowOpen) ctx.opened.add(key); else ctx.opened.delete(key);
+      writeOpened(pack.briefId, ctx.opened);
     }
   });
 
@@ -2472,8 +2573,19 @@ export function renderBrief(pack, mount, opts = {}) {
         t.setAttribute("aria-selected", String(t.dataset.goto === target)));
     });
     if (elId) {
-      const el = mount.querySelector(`[data-el="${CSS.escape(elId)}"]`);
+      /* Look inside the DESTINATION section, and skip anything that is itself a
+         link. A cross-reference carries its target's id — <a data-goto="questions"
+         data-el="question-Q-1"> — so a document-wide querySelector for that id
+         matched the LINK, which sits earlier in the DOM than the row it points
+         at. The jump then "landed" on the anchor the reader had just clicked,
+         in a section that was no longer displayed: nothing scrolled, nothing
+         flashed, and the link read as dead. Every navigation link has data-goto
+         and no target row does, so that is the thing to filter on. */
+      const scope = mount.querySelector(`#rb-${CSS.escape(target)}`) || mount;
+      const cands = [...scope.querySelectorAll(`[data-el="${CSS.escape(elId)}"]`)];
+      const el = cands.find((n) => !n.hasAttribute("data-goto")) || cands[0];
       if (el) {
+        reveal(el);
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         el.classList.remove("rb-flash"); void el.offsetWidth; el.classList.add("rb-flash");
       }
@@ -2481,6 +2593,40 @@ export function renderBrief(pack, mount, opts = {}) {
       scrollTo({ top: 0, behavior: "instant" });
     }
     o.onNavigate(target);
+  };
+
+  /* A JUMP HAS TO LAND. An R-### link, a Q-### link, a readiness blocker or a
+     shared deep link can address a row sitting inside a collapsed group, inside
+     a closed disclosure, or filtered out of the visible set — and now that every
+     group opens collapsed, that is the common case rather than the edge one.
+     scrollIntoView on a hidden element scrolls nowhere and the flash lands on
+     something nobody can see, so the link reads as broken when it worked
+     perfectly. Open every container between the section and the row, clear a
+     filter that would hide it, and open the row's OWN disclosure — following a
+     link to a requirement means you want the requirement, not its one-line
+     summary. */
+  const reveal = (el) => {
+    for (let n = el.parentElement; n && n !== mount; n = n.parentElement) {
+      if (n.tagName === "DETAILS" && !n.open) n.open = true;
+      if (n.classList.contains("rb-list-body") && n.hidden) {
+        n.hidden = false;
+        const btn = n.closest(".rb-list")?.querySelector("[data-lcollapse]");
+        if (btn) {
+          btn.setAttribute("aria-expanded", "true");
+          ctx.opened.add(btn.dataset.lcollapse);
+          writeOpened(pack.briefId, ctx.opened);
+        }
+      }
+      if (n.classList.contains("rb-list") && n.dataset.filter && n.dataset.filter !== "all") {
+        n.dataset.filter = "all";
+        n.querySelectorAll("[data-lchip]").forEach((b) =>
+          b.setAttribute("aria-pressed", String(b.dataset.lchip === "all")));
+        const empty = n.querySelector(".rb-filter-empty");
+        if (empty) empty.hidden = true;
+      }
+    }
+    const own = el.querySelector("details:not([open])");
+    if (own) own.open = true;
   };
 
   /* A person in the header is a way into their work. The action checklist is
@@ -2501,8 +2647,8 @@ export function renderBrief(pack, mount, opts = {}) {
     if (btn && btn.getAttribute("aria-expanded") !== "true") {
       btn.setAttribute("aria-expanded", "true");
       if (body) body.hidden = false;
-      ctx.collapsed.delete(key);
-      writeCollapsed(pack.briefId, ctx.collapsed);
+      ctx.opened.add(key);
+      writeOpened(pack.briefId, ctx.opened);
     }
     list.scrollIntoView({ behavior: "smooth", block: "center" });
     list.classList.remove("rb-flash"); void list.offsetWidth; list.classList.add("rb-flash");
@@ -2820,14 +2966,29 @@ export function renderBrief(pack, mount, opts = {}) {
     });
   }
 
-  /* Remember which sections are collapsed, per person, per brief. */
+  /* Remember which sections this person has opened, per brief. */
   on("toggle", (e) => {
     const g = e.target.closest?.(".rb-qgroup[data-topic]");
     if (!g || g.dataset.topic === "__new") return;
-    const set = readCollapsed(current.briefId);
-    if (g.open) set.delete(g.dataset.topic); else set.add(g.dataset.topic);
-    writeCollapsed(current.briefId, set);
+    if (g.open) ctx.opened.add(g.dataset.topic); else ctx.opened.delete(g.dataset.topic);
+    writeOpened(current.briefId, ctx.opened);
   }, true);
+
+  /* The rail opens where the reader is. The track is sized in pixels per day
+     rather than fitted to the pane, so on a pursuit carrying a client program a
+     year out it is several thousand pixels wide — and a scroll container starts
+     at scrollLeft 0, which would open the header on dates that have already
+     passed and hide the submission off the right edge. Put TODAY a quarter of
+     the way in: the recent past stays visible, and what is coming gets the rest
+     of the width. */
+  const railScroll = mount.querySelector(".rb-rail-scroll");
+  if (railScroll) requestAnimationFrame(() => {
+    const track = railScroll.firstElementChild;
+    if (!track) return;
+    const x = track.offsetWidth * (Number(railScroll.dataset.today || 0) / 100)
+      - railScroll.clientWidth * 0.25;
+    railScroll.scrollLeft = Math.max(0, x);
+  });
 
   attachPopovers(mount, docsByName, ctx, rbAC.signal);
   show(o.section);

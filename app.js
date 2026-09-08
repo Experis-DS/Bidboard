@@ -20,7 +20,32 @@ let LIB_UNSUB = null;
 const view = { filter: "all", phase: "any", owner: "any", sort: "deadline", q: "" };
 
 const DAY = 864e5;
-const days = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : Math.ceil((d - new Date().setHours(0, 0, 0, 0)) / DAY); };
+
+/* Whole days from today to a date, counted in LOCAL CALENDAR DAYS.
+   Two faults this replaces, and they compounded. (1) Math.ceil over a raw
+   millisecond difference returns -0 for a deadline that passed less than a day
+   ago at any positive UTC offset, and `-0 < 0` is FALSE — so a deadline that
+   passed yesterday still read as open, in the card state, the deadline sort,
+   the "due this week" chip and the derived phase, all at once. (2) A date-only
+   string ("2026-02-20") parses as UTC midnight, so comparing it against local
+   midnight was off by the offset in either direction. Date-only values are
+   therefore read as local dates, anything with a time is reduced to the local
+   calendar day it falls on, and the subtraction is ROUNDED because a DST day
+   is 23 or 25 hours long. */
+const localDay = (v) => {
+  const s = String(v).trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3]);
+  const d = new Date(s);
+  return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
+const days = (v) => {
+  if (!v) return null;
+  const a = localDay(v);
+  if (a === null) return null;
+  const b = new Date(); b.setHours(0, 0, 0, 0);
+  return Math.round((a - b) / DAY);
+};
 const fmtDate = (v) => { const d = new Date(v); return isNaN(d) ? "" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric" }).replace(",", ""); };
 const ago = (v) => {
   const n = Math.floor((Date.now() - new Date(v)) / DAY);
@@ -413,7 +438,7 @@ function card(p) {
     <div class="card-ask">${p.askLine ? esc(p.askLine) : "<span class='muted'>No summary in the pack.</span>"}</div>
     <div class="card-due">${p.deadline
       ? `<span>${d < 0 ? "Closed" : "Due"} ${esc(fmtDate(p.deadline))}</span>
-         <span class="card-days">${d < 0 ? `${Math.abs(d)}d ago` : `${d}d left`}</span>`
+         <span class="card-days">${d < 0 ? `${Math.abs(d)}d ago` : d === 0 ? "today" : `${d}d left`}</span>`
       : `<span class="muted" style="font-weight:400">No deadline captured</span>`}</div>
 
     ${stale
