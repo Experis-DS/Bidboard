@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.4.1";
+export const RENDERER_VERSION = "3.4.2";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -200,49 +200,39 @@ function derivePeople(pack) {
    and not trustworthy." Nothing on it is hand-maintained, so nothing on it can
    rot. Do not add completion state to this; that is what Our readiness is for. */
 function deriveRail(pack) {
-  const rows = arr(pack.dates)
-    .filter((x) => parseDate(x.date) && dateKind(x) === "response")
-    .map((x) => ({ label: x.label || "Date", date: x.date, days: daysFromNow(x.date) }));
+  const all = arr(pack.dates)
+    .filter((x) => parseDate(x.date))
+    .map((x) => ({ label: x.label || "Date", date: x.date, days: daysFromNow(x.date), kind: dateKind(x) }));
   if (pack.submission?.date && parseDate(pack.submission.date))
-    rows.push({ label: "Submission", date: pack.submission.date, days: daysFromNow(pack.submission.date), submission: true });
+    all.push({ label: "Submission", date: pack.submission.date, days: daysFromNow(pack.submission.date),
+               kind: "response", submission: true });
+  if (!all.length) return { ok: false, why: "No dates in the pack." };
+  all.sort((a, b) => a.days - b.days);
 
-  if (rows.length < 2) return { ok: false, why: "Not enough response dates to draw a rail." };
-  rows.sort((a, b) => a.days - b.days);
+  const ours = all.filter((r) => r.kind === "response");
+  const theirs = all.filter((r) => r.kind !== "response");
 
-  /* The span INCLUDES today, always. Scaling it to the dates alone looked
-     right and was useless in the commonest case there is: on a live pursuit
-     every response date is still ahead of you, today sits off the left edge,
-     and the marker the rail exists for never draws. Stretching to today costs a
-     little empty track at one end and buys the one thing a reader wants from
-     this strip — where they are standing relative to what is coming. */
-  const first = Math.min(rows[0].days, 0);
-  const last = Math.max(rows[rows.length - 1].days, 0);
-  const span = last - first || 1;
-  const at = (dd) => Math.max(0, Math.min(100, ((dd - first) / span) * 100));
-  /* Dots keep their EXACT position; labels get a lane. Real response dates
-     cluster — three inside one week, then an award two months out — so a single
-     row of labels overlaps into mush at the crowded end. Nudging the dots apart
-     would fix the picture by making the rail lie about position, which is the
-     one thing it claims to show. So the dots stay put and the text steps down a
-     lane when it would collide with the label already there. */
-  const LANE_GAP = 13;              /* percent of track width one label needs */
-  const lastInLane = [-Infinity, -Infinity, -Infinity];
-  const placed = rows.map((r) => {
-    const x = at(r.days);
-    let lane = lastInLane.findIndex((prev) => x - prev >= LANE_GAP);
-    if (lane === -1) lane = 0;      /* denser than three lanes: overlap, tooltips carry it */
-    lastInLane[lane] = x;
-    return { ...r, at: x, lane };
-  });
-
-  return {
-    ok: true,
-    rows: placed,
-    lanes: Math.max(1, ...placed.map((r) => r.lane + 1)),
-    todayAt: at(0),
-    allPast: rows[rows.length - 1].days < 0,
-  };
+  /* EVERY date is listed. Only OUR dates are PLOTTED, and that is a scale
+     decision rather than an editorial one. On this pursuit the dates run from 6
+     days ago to 570 days out; on one linear axis the four that matter this month
+     collapse into 3.6% of the width and land on top of each other. The client's
+     program is real and belongs on the page — it is in the key underneath, with
+     its dates — but drawing a go-live 19 months out beside a submission in 13
+     days is the exact failure the two-clock split exists to stop: the far date
+     reads as slack on the near one. */
+  const plot = ours.length >= 2 ? ours : [];
+  let track = null;
+  if (plot.length) {
+    const first = Math.min(plot[0].days, 0);
+    const last = Math.max(plot[plot.length - 1].days, 0);
+    const span = last - first || 1;
+    const at = (dd) => Math.max(0, Math.min(100, ((dd - first) / span) * 100));
+    track = { rows: plot.map((r) => ({ ...r, at: at(r.days) })), todayAt: at(0),
+              allPast: plot[plot.length - 1].days < 0 };
+  }
+  return { ok: true, track, ours, theirs, total: all.length };
 }
+
 
 function deriveReadiness(pack) {
   const items = arr(pack.actionItems), reqs = arr(pack.requirements), rules = arr(pack.rules);
@@ -667,18 +657,32 @@ function secSnapshot(p, d, ctx) {
   const contacts = arr(cc.contacts);
   const hasClient = has(cc.business) || has(cc.problem) || has(team.name) || contacts.length;
 
+  /* "reporting to" was inline prose, and /RFP legitimately writes a sentence
+     into reportsTo when the documents do not say — which rendered as
+     "…reporting to Not stated in the documents." A labelled value reads
+     correctly whatever the field holds, including a real name, so the fix is the
+     grammar rather than a guess at which strings mean "absent". */
   const teamLine = [
     has(team.name) ? `<span${ed(ctx, "clientContext.team.name")}>${esc(team.name)}</span>` : "",
-    has(team.reportsTo) ? `reporting to <span${ed(ctx, "clientContext.team.reportsTo")}>${esc(team.reportsTo)}</span>` : "",
-  ].filter(Boolean).join(", ");
+    has(team.reportsTo)
+      ? `<span class="rb-reports">Reports to: <span${ed(ctx, "clientContext.team.reportsTo")}>${esc(team.reportsTo)}</span></span>`
+      : "",
+  ].filter(Boolean).join("");
 
   /* Contacts are named people, so they key on `name` and every one is
      add/edit/deletable — a pursuit gains contacts as it runs, and a list you
-     cannot append to stops being maintained on the first new introduction. */
+     cannot append to stops being maintained on the first new introduction.
+
+     Name on its own line, role beneath in helper text. They used to run inline
+     on one baseline, which works right until a name wraps: "Angela Galmarini"
+     broke to two lines and the role started level with its SECOND line, so the
+     block read as a ragged staircase with no line clearly belonging to anyone.
+     These stay <span>s and are made block by CSS — the whole thing sits inside a
+     <p>, and a <ul> there is hoisted out by the parser. */
   const contactRows = contacts.map((c) => `
     <span class="rb-contact" data-el="contact-${esc(c.name)}">
       <b${edIn(ctx, `clientContext.contacts[name=${c.name}].name`, "")}>${esc(c.name)}</b>
-      <span${edIn(ctx, `clientContext.contacts[name=${c.name}].role`, "rb-meta")}>${esc(c.role || "role")}</span>
+      <span${edIn(ctx, `clientContext.contacts[name=${c.name}].role`, "rb-contact-role")}>${esc(c.role || "role")}</span>
       ${delBtn(ctx, "clientContext.contacts", c.name, "name")}
     </span>`).join("");
 
@@ -2179,6 +2183,15 @@ function srcLink(src, ctx) {
 
    The rail is RESPONSE dates only and shows position, never progress. See
    deriveRail for why that constraint is what makes it trustworthy. */
+/* "in 13 days" beats "Sep 21" alone and both beat neither. The absolute date is
+   what you put in a calendar; the relative one is what tells you to move. */
+const relDays = (n) =>
+  n === 0 ? "today"
+  : n === 1 ? "tomorrow"
+  : n === -1 ? "yesterday"
+  : n > 0 ? `in ${n} days`
+  : `${Math.abs(n)} days ago`;
+
 const initials = (n) => String(n || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
 
 function pursuitHeader(p, d, ctx) {
@@ -2204,21 +2217,51 @@ function pursuitHeader(p, d, ctx) {
           <span class="rb-who-name">Unassigned</span><span class="rb-who-n">${ppl.unassigned}</span></button>` : ""}
     </div>` : "";
 
-  /* Labels are truncated in place rather than dropped: a rail whose middle
-     points are anonymous dots is a decoration. The full label is in the title
-     and the whole point is clickable through to the Timeline. */
+  /* The rail carries POSITION; the key carries NAMES and every date we hold.
+     Splitting them is what lets both be true at once — the dots stay
+     proportional, so a cluster still looks like a cluster and TODAY still means
+     something, while the names get a full-width row where nothing has to be
+     truncated. Before this the names sat on the axis: measured across
+     1100-1680px, three of four were cut off at every width and the two at the
+     ends hung past the track. Lanes stopped them colliding; nothing could make
+     them legible in that space. */
+  const t = rail.ok ? rail.track : null;
+
+  const dot = (r) => `
+    <a class="rb-rail-pt${r.submission ? " is-sub" : ""}${r.days < 0 ? " is-done" : ""}"
+       style="left:${r.at.toFixed(2)}%" href="${goHref("timeline")}" data-goto="timeline"
+       tabindex="-1" aria-hidden="true"
+       title="${esc(r.label)} · ${esc(fmtDate(r.date))} · ${relDays(r.days)}"><i></i></a>`;
+
+  const keyRow = (r) => `
+    <li><a href="${goHref("timeline")}" data-goto="timeline"
+           class="${r.submission ? "is-sub" : ""}${r.days < 0 ? " is-done" : ""}">
+      <i aria-hidden="true"></i>
+      <b>${esc(r.label)}</b>
+      <span>${esc(fmtDate(r.date))} · ${relDays(r.days)}</span>
+    </a></li>`;
+
   const track = rail.ok ? `
-    <div class="rb-rail${rail.allPast ? " is-past" : ""}" style="--rb-rail-lanes:${rail.lanes}">
-      <div class="rb-rail-track" role="img"
-        aria-label="Response dates: ${esc(rail.rows.map((r) => `${r.label} ${fmtDate(r.date)}`).join(", "))}">
-        <span class="rb-rail-line" aria-hidden="true"></span>
-        ${rail.todayAt !== null ? `<span class="rb-rail-today" style="left:${rail.todayAt.toFixed(2)}%" aria-hidden="true"><i></i><b>Today</b></span>` : ""}
-        ${rail.rows.map((r) => `
-          <a class="rb-rail-pt${r.submission ? " is-sub" : ""}${r.days < 0 ? " is-done" : ""}"
-             style="left:${r.at.toFixed(2)}%;--rb-lane:${r.lane}" href="${goHref("timeline")}" data-goto="timeline"
-             title="${esc(r.label)} · ${esc(fmtDate(r.date))} · ${r.days < 0 ? `${Math.abs(r.days)} days ago` : `in ${r.days} days`}">
-            <i aria-hidden="true"></i><span>${esc(r.label)}</span></a>`).join("")}
-      </div>
+    <div class="rb-rail${t && t.allPast ? " is-past" : ""}">
+      ${t ? `<div class="rb-rail-track" aria-hidden="true">
+        <span class="rb-rail-line"></span>
+        <span class="rb-rail-today" style="left:${t.todayAt.toFixed(2)}%"><i></i><b>Today</b></span>
+        ${/* Two dates on one day draw one dot. The submission paints last so it
+              is the one on top, which is the right one to see. */""}
+        ${t.rows.filter((r) => !r.submission).map(dot).join("")}
+        ${t.rows.filter((r) => r.submission).map(dot).join("")}
+      </div>` : ""}
+      ${rail.ours.length ? `<ol class="rb-rail-key">${rail.ours.map(keyRow).join("")}</ol>` : ""}
+      ${/* The client's program is folded, not dropped. Six dates on this pursuit,
+            none actionable this month, so opening the header with them pushes the
+            work off the screen — but a date the board holds and does not show is
+            a date somebody re-reads the RFP for. Native <details>: no JS, no
+            stored state, no listener. */""}
+      ${rail.theirs.length ? `
+        <details class="rb-rail-more">
+          <summary>Client's program<span>${plural(rail.theirs.length, "date")}</span></summary>
+          <ol class="rb-rail-key is-theirs">${rail.theirs.map(keyRow).join("")}</ol>
+        </details>` : ""}
     </div>` : "";
 
   return `<div class="rb-hdr">${people}${track}</div>`;

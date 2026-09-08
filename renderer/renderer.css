@@ -1140,9 +1140,22 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb-snapshot .rb-verdict p { max-width: none; }
 
 /* ---- the client: who we're talking to ---- */
-.rb-contacts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
-.rb-contact { display: inline-flex; align-items: baseline; gap: 7px; }
-.rb-contact b { font-weight: 650; }
+/* One block per person: name on its own line, role beneath in helper text.
+   These were inline-flex on a shared baseline, which staggered the moment a name
+   wrapped — "Angela Galmarini" broke to two lines and the role began level with
+   its SECOND line, so the group read as a staircase with no line clearly
+   belonging to anyone. Grid columns give each person a fixed measure, so names
+   line up down the page instead of being shoved around by the longest role.
+   Kept as <span>s made block by CSS: this sits inside a <p>, and a <ul> there is
+   hoisted out by the parser. */
+.rb-contacts {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 12px 20px; margin-top: 10px;
+}
+.rb-contact { display: grid; gap: 1px; align-content: start; min-width: 0; }
+.rb-contact b { font-weight: 650; color: var(--rb-ink); line-height: 1.35; }
+.rb-contact-role { font-size: var(--rb-t-small); color: var(--rb-gray-2); line-height: 1.4; }
+.rb-reports { display: block; margin-top: 2px; font-size: var(--rb-t-small); color: var(--rb-gray-2); }
 
 /* ============================================================
    3.4.0 — PERSISTENT HEADER, TABS, COMPETENCY MIX
@@ -1192,65 +1205,104 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb .rb-who.is-late .rb-who-n { color: var(--rb-urgent); }
 .rb .rb-who.is-unassigned { padding-left: 9px; border-style: dashed; }
 
-/* ---- the date rail: position in time, never progress ---- */
-.rb-rail { padding: 2px 0 4px; --rb-rail-lanes: 1; --rb-lane-h: 30px; }
-/* --rb-lane-h must clear a label at its FULL clamped height, which is two lines
-   (2 x 11px x 1.25 = 28px), not one. It was 22px — fine for the single-line
-   labels every test pack happened to have, and 6px short the moment a real
-   pursuit carried a long one: "Budgetary pricing and costed options to Angela"
-   wrapped to two lines and bled into the lane below it. Two dates on the same
-   day is the case that forces stacking, so this is the common path, not an edge.
-   The track grows only as far as the lanes actually used. */
-.rb-rail-track {
-  position: relative; margin: 0 10px;
-  height: calc(24px + var(--rb-rail-lanes) * var(--rb-lane-h));
-}
+/* ---- the date rail: position in time, never progress ----
+   Two parts doing two jobs. The TRACK is proportional and carries position: a
+   cluster looks like a cluster, and TODAY sits where today actually is. The KEY
+   below it carries the names, with room to be read.
+
+   They were one thing until 3.4.2, with names sitting on the axis. Measured
+   across 1100-1680px, three of four labels were truncated at every width and
+   both end labels hung off the track — because real response dates cluster
+   (three in one week, one two months out) and a linear axis gives the most room
+   to the stretch where nothing happens. Lanes stopped them colliding; they could
+   never make them legible. Splitting the two jobs is what fixes it. */
+.rb-rail { display: grid; gap: 10px; }
+/* 10px of margin, not 6: a dot is 9px wide plus its hit padding and is centred
+   on its position, so the first and last hung past the track ends. */
+.rb-rail-track { position: relative; height: 26px; margin: 0 10px; }
 .rb-rail-line {
-  position: absolute; left: 0; right: 0; top: 7px; height: 2px;
+  position: absolute; left: 0; right: 0; bottom: 5px; height: 2px;
   background: var(--rb-line); border-radius: 2px;
 }
 .rb .rb-rail-pt {
-  position: absolute; top: 0; transform: translateX(-50%);
-  display: grid; justify-items: center; gap: 4px; max-width: 13ch;
-  color: var(--rb-gray-2); font-size: var(--rb-t-micro); line-height: 1.25; text-decoration: none;
-  --rb-lane: 0;
-}
-/* The dot never moves — only the label steps down. A leader line keeps a
-   stepped label attached to the point it belongs to, which is the whole reason
-   the stagger is legible rather than just scattered. */
-.rb .rb-rail-pt span { margin-top: calc(var(--rb-lane) * var(--rb-lane-h)); position: relative; }
-.rb .rb-rail-pt[style*="--rb-lane:1"] span::before,
-.rb .rb-rail-pt[style*="--rb-lane:2"] span::before {
-  content: ""; position: absolute; left: 50%; bottom: 100%;
-  width: 1px; height: calc(var(--rb-lane) * var(--rb-lane-h));
-  background: var(--rb-line);
+  position: absolute; bottom: 0; transform: translateX(-50%);
+  display: block; padding: 4px; text-decoration: none;
 }
 .rb .rb-rail-pt i {
-  width: 9px; height: 9px; border-radius: 50%; margin-top: 4px;
+  display: block; width: 9px; height: 9px; border-radius: 50%;
   background: var(--rb-bg); border: 2px solid var(--rb-gray-3);
 }
-.rb .rb-rail-pt span {
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; text-align: center;
-}
-.rb-rail-today { z-index: 1; }
-.rb .rb-rail-pt:hover { text-decoration: none; color: var(--rb-ink); }
-.rb .rb-rail-pt:hover i { border-color: var(--rb-accent); }
 .rb .rb-rail-pt.is-done i { background: var(--rb-line); border-color: var(--rb-line); }
-.rb .rb-rail-pt.is-done span { color: var(--rb-gray-3); }
+.rb .rb-rail-pt.is-sub  { z-index: 2; }
 .rb .rb-rail-pt.is-sub i { background: var(--rb-accent); border-color: var(--rb-accent); }
-.rb .rb-rail-pt.is-sub span { color: var(--rb-ink-2); font-weight: 650; }
-.rb-rail-today { position: absolute; top: -2px; bottom: 0; transform: translateX(-50%); }
+.rb .rb-rail-pt:hover i { border-color: var(--rb-accent); }
+
+/* TODAY is a marker, not an axis. Its rule used to run the full height of the
+   strip, which read as a panel divider splitting the header in two. It now just
+   crosses the line it marks. */
+.rb-rail-today { position: absolute; bottom: 0; transform: translateX(-50%); z-index: 3; }
 .rb-rail-today i {
-  position: absolute; top: 8px; bottom: 8px; left: 50%; width: 1px;
-  background: var(--rb-urgent); opacity: .55;
+  position: absolute; bottom: 1px; left: 50%; width: 1px; height: 11px;
+  background: var(--rb-urgent);
 }
 .rb-rail-today b {
-  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  position: absolute; bottom: 13px; left: 50%; transform: translateX(-50%);
   font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
   color: var(--rb-urgent); white-space: nowrap;
 }
 .rb-rail.is-past .rb-rail-line { opacity: .6; }
+
+/* The key. Wraps at any width, so nothing is ever truncated and nothing can
+   overflow the track. Reading order matches the dots left to right. */
+.rb-rail-key { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+/* Capped measure. /RFP writes provenance into a date label — "Reconnect call
+   with Angela (transcript: Wednesday of the week of 21 September)" — and an
+   uncapped row ran 460px, so four dates took four rows. Wrapping each within its
+   own column gives a tidy grid and halves the header. Nothing is truncated: the
+   cap changes where the text wraps, not how much of it there is. */
+.rb .rb-rail-key a {
+  display: grid; grid-template-columns: 9px minmax(0, auto); gap: 2px 7px; align-items: baseline;
+  text-decoration: none; color: var(--rb-ink-2); padding: 2px 0; max-width: 34ch;
+}
+.rb-rail-key b { overflow-wrap: anywhere; }
+.rb .rb-rail-key a:hover { text-decoration: none; }
+.rb .rb-rail-key a:hover b { color: var(--rb-accent); }
+.rb-rail-key i {
+  width: 9px; height: 9px; border-radius: 50%; align-self: center;
+  background: var(--rb-bg); border: 2px solid var(--rb-gray-3);
+}
+.rb-rail-key b { font-size: var(--rb-t-small); font-weight: 650; }
+.rb-rail-key span {
+  grid-column: 2; font-size: var(--rb-t-micro); color: var(--rb-gray-2);
+  font-variant-numeric: tabular-nums;
+}
+.rb .rb-rail-key .is-sub i { background: var(--rb-accent); border-color: var(--rb-accent); }
+.rb .rb-rail-key .is-sub b { color: var(--rb-ink); font-weight: 700; }
+/* Past dates recede but stay at --gray-2, the lightest text the system allows.
+   They were drifting toward gray-3, which is decoration only. */
+.rb .rb-rail-key .is-done i { background: var(--rb-line); border-color: var(--rb-line); }
+.rb .rb-rail-key .is-done b { color: var(--rb-gray-2); font-weight: 550; }
+
+/* The client's program, folded. Six dates that are real but not actionable this
+   month: shown, so nobody re-reads the RFP to find them; closed, so they do not
+   push the work off the top of the screen. */
+.rb-rail-more > summary {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer; width: fit-content;
+  font-size: var(--rb-t-small); color: var(--rb-gray-2); list-style: none; padding: 2px 0;
+}
+.rb-rail-more > summary::-webkit-details-marker { display: none; }
+.rb-rail-more > summary::before {
+  content: ""; width: 0; height: 0; border: 4px solid transparent;
+  border-left-color: var(--rb-gray-3); transition: transform .12s ease;
+}
+.rb-rail-more[open] > summary::before { transform: rotate(90deg) translateX(1px); }
+.rb-rail-more > summary:hover { color: var(--rb-ink); }
+.rb-rail-more > summary span { font-variant-numeric: tabular-nums; }
+.rb-rail-key.is-theirs { margin-top: 8px; padding-left: 15px; }
+/* Their dates are not ours to hit, so they are drawn hollow. The distinction is
+   weight, not a second color — the two-color key that used to sit on this rail
+   was removed for exactly that reason. */
+.rb-rail-key.is-theirs i { border-color: var(--rb-line); }
 
 /* ---- tabs: the views inside one job ---- */
 .rb-tabs {
@@ -1318,7 +1370,6 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
   .rb-mix-donut { display: none; }
   .rb-mix-row { grid-template-columns: 10px minmax(0, 1fr) 5ch; }
   .rb-mix-lead { display: none; }
-  .rb-rail-track { height: 52px; }
 }
 @media print {
   .rb-tabs { display: none !important; }
