@@ -12,8 +12,8 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.3.1";
-export const SCHEMA_SUPPORT = { min: 1, max: 3 };
+export const RENDERER_VERSION = "3.4.0";
+export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
 
@@ -76,6 +76,171 @@ export function derive(pack) {
     criticalPath: deriveCriticalPath(pack),
     ownerLoad: deriveOwnerLoad(pack),
     coverage: deriveCoverage(pack),
+    mix: deriveMix(pack),
+    people: derivePeople(pack),
+    rail: deriveRail(pack),
+  };
+}
+
+/* ---------- competency mix ----------
+   The question this answers is not "what work is in this bid" — it is "am I in
+   this, and how much of me does it need". A competency leader who can see they
+   are 5% of the work stands down, and that is a WIN: it is the "too many cooks"
+   problem the board exists to solve, solved by giving people grounds to leave.
+
+   Two sources, always labeled. `competencyMix` in the pack is /RFP's read of the
+   requirement split and is what we prefer. Absent, we derive one from the hour
+   estimates in team.competencies and SAY SO — an hours split answers a slightly
+   different question (what it costs to deliver, not what the RFP demands) and a
+   reader arguing with the number needs to know which one they are arguing with.
+
+   Never invented. No competencies and no hours means no mix, and the section
+   says the pack does not carry one rather than drawing an empty ring. */
+function deriveMix(pack) {
+  const stated = arr(pack.competencyMix?.areas).filter((a) => a && has(a.area));
+  if (stated.length) {
+    const areas = stated.map((a) => ({
+      area: a.area,
+      canonical: canonicalComp(a.area),
+      weight: Math.max(0, Math.round(Number(a.weight) || 0)),
+      basis: a.basis || "",
+      requirementIds: arr(a.requirementIds),
+      lead: a.lead || "",
+    })).sort((x, y) => y.weight - x.weight || compRank(x.area) - compRank(y.area));
+    const total = areas.reduce((t, a) => t + a.weight, 0);
+    return {
+      ok: true, source: pack.competencyMix.source === "human" ? "human" : "pack",
+      note: pack.competencyMix.note || "", areas, total,
+      /* Stated weights are NEVER rebalanced. /RFP is instructed to emit what it
+         believes rather than normalise a number it is unsure of, so a total that
+         is not 100 is a finding to show, not an error to correct silently. */
+      off: total !== 100,
+    };
+  }
+
+  /* Hours first. Failing that, the dead `fte` field — and this is not a
+     resurrection of it. FTE was killed as a DISPLAYED NUMBER, because "0.3 of a
+     full-time employee" reads as permanent headcount in a staffing company and
+     nobody could act on it. What was never wrong about it is the RATIO between
+     the entries, and a ratio is all a share is. Every pursuit imported before v5
+     carries fte and nothing else; the alternative is that the board's flagship
+     new section is empty on the entire existing library, which is how a feature
+     gets written off in the first week. The provenance line says which basis
+     produced the number, so nobody has to guess. */
+  const byHours = arr(pack.team?.competencies).filter((c) => Number(c.hours) > 0);
+  const byFte = byHours.length ? [] : arr(pack.team?.competencies).filter((c) => Number(c.fte) > 0);
+  const comps = byHours.length ? byHours : byFte;
+  const basis = byHours.length ? "hours" : "fte";
+  if (!comps.length) return { ok: false, why: "This pack does not carry a competency split." };
+
+  const val = (c) => Number(basis === "hours" ? c.hours : c.fte);
+  const totalV = comps.reduce((t, c) => t + val(c), 0);
+  const raw = comps.map((c) => ({
+    area: c.name, canonical: canonicalComp(c.name),
+    exact: (val(c) / totalV) * 100,
+    basis: basis === "hours"
+      ? `${Math.round(val(c)).toLocaleString()} of ${Math.round(totalV).toLocaleString()} estimated hours`
+      : `${(val(c) / totalV * 100).toFixed(0)}% of the effort estimate on file`,
+    requirementIds: arr(c.requirementIds), lead: c.lead || "",
+  }));
+  /* Largest remainder, so the derived weights total exactly 100. This is
+     arithmetic, not a judgment call — the "never normalise" rule above governs
+     numbers a human or /RFP asserted, not rounding drift we introduced here by
+     turning hours into percentages. */
+  const areas = raw.map((r) => ({ ...r, weight: Math.floor(r.exact) }));
+  let short = 100 - areas.reduce((t, a) => t + a.weight, 0);
+  areas.slice().sort((a, b) => (b.exact % 1) - (a.exact % 1)).forEach((a) => { if (short-- > 0) a.weight += 1; });
+  areas.sort((x, y) => y.weight - x.weight || compRank(x.area) - compRank(y.area));
+
+  return { ok: true, source: basis, areas, total: 100, off: false,
+    note: "derived from Effort & team, not from the requirement split" };
+}
+
+/* ---------- the people, for the persistent header ----------
+   "Maybe it's less about who's involved, but WHAT's involved — because people
+   change." The competency mix took the top of Summary; the people moved here,
+   where they are true on every tab instead of being a zone you scroll past once.
+
+   pointPerson is v5 and is the honest answer to "who's running this thing". A v4
+   pack has no such field, so we fall back to a roster entry whose role reads as
+   a lead and LABEL it as read from the roster — a guessed wrangler presented as
+   a stated one is exactly the kind of quiet fiction that costs the board trust. */
+function derivePeople(pack) {
+  const items = arr(pack.actionItems);
+  const open = (n) => items.filter((i) => i.owner === n && i.status !== "done").length;
+  const late = (n) => items.filter((i) => i.owner === n && i.status !== "done" && daysFromNow(i.due) < 0).length;
+
+  const stated = pack.pointPerson && has(pack.pointPerson.name) ? pack.pointPerson : null;
+  const fromRoster = arr(pack.roster).find((r) => /lead|owner|manager|captain/i.test(r.role || ""));
+  const point = stated
+    ? { name: stated.name, role: stated.role || "", source: "stated" }
+    : fromRoster ? { name: fromRoster.name, role: fromRoster.role || "", source: "roster" } : null;
+
+  const names = [...new Set([
+    ...arr(pack.roster).map((r) => r.name),
+    ...items.map((i) => i.owner),
+  ].filter(Boolean))].filter((n) => !point || n !== point.name);
+
+  const people = names
+    .map((n) => ({ name: n, open: open(n), late: late(n) }))
+    .sort((a, b) => b.open - a.open || String(a.name).localeCompare(String(b.name)));
+
+  return {
+    ok: !!(point || people.length),
+    point: point ? { ...point, open: open(point.name), late: late(point.name) } : null,
+    people,
+    unassigned: items.filter((i) => !i.owner && i.status !== "done").length,
+  };
+}
+
+/* ---------- the header date rail ----------
+   RESPONSE dates only. The rail shows POSITION IN TIME and never progress —
+   that constraint is what makes it possible at all: "unless you have somebody
+   whose job it is to check things off, the timeline is just going to be static
+   and not trustworthy." Nothing on it is hand-maintained, so nothing on it can
+   rot. Do not add completion state to this; that is what Our readiness is for. */
+function deriveRail(pack) {
+  const rows = arr(pack.dates)
+    .filter((x) => parseDate(x.date) && dateKind(x) === "response")
+    .map((x) => ({ label: x.label || "Date", date: x.date, days: daysFromNow(x.date) }));
+  if (pack.submission?.date && parseDate(pack.submission.date))
+    rows.push({ label: "Submission", date: pack.submission.date, days: daysFromNow(pack.submission.date), submission: true });
+
+  if (rows.length < 2) return { ok: false, why: "Not enough response dates to draw a rail." };
+  rows.sort((a, b) => a.days - b.days);
+
+  /* The span INCLUDES today, always. Scaling it to the dates alone looked
+     right and was useless in the commonest case there is: on a live pursuit
+     every response date is still ahead of you, today sits off the left edge,
+     and the marker the rail exists for never draws. Stretching to today costs a
+     little empty track at one end and buys the one thing a reader wants from
+     this strip — where they are standing relative to what is coming. */
+  const first = Math.min(rows[0].days, 0);
+  const last = Math.max(rows[rows.length - 1].days, 0);
+  const span = last - first || 1;
+  const at = (dd) => Math.max(0, Math.min(100, ((dd - first) / span) * 100));
+  /* Dots keep their EXACT position; labels get a lane. Real response dates
+     cluster — three inside one week, then an award two months out — so a single
+     row of labels overlaps into mush at the crowded end. Nudging the dots apart
+     would fix the picture by making the rail lie about position, which is the
+     one thing it claims to show. So the dots stay put and the text steps down a
+     lane when it would collide with the label already there. */
+  const LANE_GAP = 13;              /* percent of track width one label needs */
+  const lastInLane = [-Infinity, -Infinity, -Infinity];
+  const placed = rows.map((r) => {
+    const x = at(r.days);
+    let lane = lastInLane.findIndex((prev) => x - prev >= LANE_GAP);
+    if (lane === -1) lane = 0;      /* denser than three lanes: overlap, tooltips carry it */
+    lastInLane[lane] = x;
+    return { ...r, at: x, lane };
+  });
+
+  return {
+    ok: true,
+    rows: placed,
+    lanes: Math.max(1, ...placed.map((r) => r.lane + 1)),
+    todayAt: at(0),
+    allPast: rows[rows.length - 1].days < 0,
   };
 }
 
@@ -203,54 +368,83 @@ function deriveCoverage(pack) {
    is triaging before they are scoping. Reading order here is PRIORITY, not
    chronology; the labels are intents, so nothing about this implies you passed
    through Decide on your way to Understand. */
-const GROUPS = ["Decide", "Understand", "Build", "Submit"];
+/* ---------- nav: five entries, sections as tabs ----------
+   Ten sections under four group headings was still read as overload, and the
+   density sat in the wrong place. A sidebar is for choosing a JOB, not for
+   enumerating every view that job might need — so the jobs are the nav and the
+   views are tabs inside them.
+
+   Summary is entry one rather than chrome floating above the groups, because
+   ungrouped meant skipped: "it's not inside a substructure." It is also no
+   longer called TLDR, which told a first-time reader nothing about what was
+   behind it. Understand now sits ahead of Decide: the triage read happens on
+   Summary itself, so by the time you leave it you are scoping, not triaging.
+
+   THE LABELS NAME INTENTS, NEVER STATES. No active entry, no progress, no
+   checkmarks, no numbering, and nothing in the pack may drive how an entry
+   looks. A lifecycle vocabulary in a nav wants to become a progress tracker,
+   and that is precisely how the six-step stage stepper became a lie. If someone
+   asks for a "current phase" indicator here, the answer is no — the countdown
+   and the readiness score already say where we are and both are derived. This
+   paragraph is the reason. Do not delete it and then add the indicator. */
+const ENTRIES = [
+  { id: "summary",    label: "Summary" },
+  { id: "understand", label: "Understand" },
+  { id: "decide",     label: "Decide" },
+  { id: "build",      label: "Build" },
+  { id: "submit",     label: "Submit" },
+];
 
 const SECTIONS = [
-  /* TLDR is ungrouped on purpose: it is the only screen that answers all four
-     intents at once, and it is the one thing everybody reads. */
-  { id: "snapshot",     label: "TLDR",                 render: secScope },
+  /* Summary answers all five intents at once and is the one screen everybody
+     reads, so it is an entry with a single tab — and an entry with one tab
+     renders no tab bar, because a lone tab is a label pretending to be a
+     choice. */
+  { id: "snapshot",     label: "Summary",              render: secScope, entry: "summary" },
 
   /* Delivery scope keeps the `compliance` id. #/b/<pursuit>/compliance links are
      already shared in Teams threads and they were pointing at requirements, so
      the id follows the content rather than the label. */
-  { id: "compliance",   label: "Delivery scope",       render: secRequirementsTab, group: "Understand",
+  { id: "compliance",   label: "Delivery scope",       render: secRequirementsTab, entry: "understand",
     when: (p) => has(p.requirements) || arr(p.dates).some((x) => dateKind(x) === "program"),
     count: (p) => arr(p.requirements).length || null },
   /* Was "Rules of the bid" — a title that named the container rather than the
      job. Nobody could tell from it whether the section held the scoring rules,
      the contract terms or the page limit. It holds the page limit. */
-  { id: "rules",        label: "How to submit",        render: secRulesTab, group: "Understand",
+  { id: "rules",        label: "How to submit",        render: secRulesTab, entry: "understand",
     when: (p) => has(p.rules),
     count: (p) => arr(p.rules).length || null },
 
-  { id: "risks",        label: "Risks & signals",      render: secRisks, group: "Decide",
+  { id: "risks",        label: "Risks & signals",      render: secRisks, entry: "decide",
     when: (p) => has(p.risks) || has(p.signals) },
-  { id: "team",         label: "Effort & team",        render: secTeam, group: "Decide",
+  { id: "team",         label: "Effort & team",        render: secTeam, entry: "decide",
     when: (p) => has(p.team) || has(p.roster) },
-  { id: "evaluation",   label: "Scoring & fit",        render: secEvaluation, group: "Decide",
+  { id: "evaluation",   label: "Scoring & fit",        render: secEvaluation, entry: "decide",
     when: (p) => has(p.scorecard) || has(p.evaluation) },
 
+  /* Our readiness leads Build: it is the tab people live in. The timeline is
+     the frame around that work, not the work. */
+  { id: "plan",         label: "Our readiness",        render: secPlan, entry: "build",
+    when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
+    count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
   /* Both clocks on one rail. They used to be two folds in two different
      sections — "Our clock" inside Our readiness, "Their program" inside
      Delivery scope — so the one question a timeline exists to answer, how the
      two run against each other, could not be asked at all. */
-  { id: "timeline",     label: "Timeline",             render: secTimeline, group: "Build",
+  { id: "timeline",     label: "Timeline",             render: secTimeline, entry: "build",
     when: (p) => has(p.dates) || has(p.submission),
     count: (p) => arr(p.dates).length || null },
-  { id: "plan",         label: "Our readiness",        render: secPlan, group: "Build",
-    when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
-    count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
-  { id: "questions",    label: "Questions to client",  render: secQuestions, group: "Build",
+  { id: "questions",    label: "Questions to client",  render: secQuestions, entry: "build",
     when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
 
-  { id: "preflight",    label: "Submission check",     render: secPreflight, group: "Submit",
+  { id: "preflight",    label: "Submission check",     render: secPreflight, entry: "submit",
     when: (p) => has(p.rules) || has(p.submission) },
-  { id: "decisions",    label: "Decision log",         render: secDecisions, group: "Submit",
+  { id: "decisions",    label: "Decision log",         render: secDecisions, entry: "submit",
     when: (p) => has(p.decisions) || has(p.parkingLot) || has(p.meetings), count: (p) => arr(p.decisions).length || null },
   /* Documents is a LAUNCHER, not a page: the way it gets used is "bam, bam,
-     bam, you can get the docs you need". chrome:true keeps it out of the nav
-     and reachable from the header, which removes a tab and makes it available
-     from every section instead of one. */
+     bam, you can get the docs you need". chrome:true keeps it out of the entry
+     list and reachable from below it, which removes a tab and makes it
+     available from every section instead of one. */
   { id: "documents",    label: "Documents",            render: secDocuments,    chrome: true, when: (p) => has(p.documents), count: (p) => arr(p.documents).length || null },
 ];
 
@@ -259,7 +453,27 @@ const SECTIONS = [
 let BASE_ROUTE = "#";
 const goHref = (id) => (BASE_ROUTE === "#" ? "#" : `${BASE_ROUTE}/${id}`);
 
-const SECTION_ALIASES = { ask: "snapshot", checklist: "plan", dates: "timeline", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
+/* `rules` is NOT in here and must never be. It is a live section id in its own
+   right; aliasing it would send every data-goto="rules" to the wrong half of
+   the old merged Rules & Requirements tab. */
+const SECTION_ALIASES = { ask: "snapshot", tldr: "snapshot", checklist: "plan", dates: "timeline", requirements: "compliance", scorecard: "evaluation", record: "decisions" };
+
+/* Which entry a section is a tab of, and what the reader last had open in each.
+   The remembered tab is per person and per pursuit: it is a viewing preference,
+   not content, so it lives in localStorage and never in the pack. */
+const entryOf = (id) => (SECTIONS.find((x) => x.id === id) || {}).entry || null;
+const tabKey = (briefId) => `rb.tab.${briefId || "brief"}`;
+function readTabs(briefId) {
+  try { return JSON.parse(localStorage.getItem(tabKey(briefId))) || {}; } catch { return {}; }
+}
+function writeTab(briefId, entry, section) {
+  if (!entry) return;
+  try {
+    const all = readTabs(briefId);
+    all[entry] = section;
+    localStorage.setItem(tabKey(briefId), JSON.stringify(all));
+  } catch { /* private browsing — the tab simply does not persist */ }
+}
 
 /* ---------- date kinds ----------
    Two clocks were being drawn on one rail and read as one sequence. A RESPONSE
@@ -300,6 +514,124 @@ function mineStrip(p, ctx) {
   return `<a class="rb-mine" href="${goHref("plan")}" data-goto="plan" data-el="action-${esc(mine[0].id)}">
     <b>${plural(mine.length, "item")}</b> waiting on you${late ? ` \u00b7 <span class="rb-mine-late">${late} late</span>` : ""}
     <span class="rb-mine-go" aria-hidden="true">\u2192</span></a>`;
+}
+
+/* ---------- competency mix ----------
+   The most-requested addition from the 2026-09-02 review, and the reason is
+   specific: a competency leader opens the brief to answer "am I in this, and
+   how much of me does it need", and then either engages or hands it on. "I look
+   at it, I see that I'm representing 5% of the bid. I'm going to back off."
+
+   ONE HUE AT DESCENDING TINTS. Not a categorical palette — a competency palette
+   would be the priority rainbow with a new name, and the two-color rule exists
+   precisely to stop that. Tints carry magnitude, which is what the number means.
+
+   The donut is drawn only where a donut is honest: five slices or fewer and
+   nothing under 5%. Past that, arcs a reader cannot compare and labels that will
+   not fit — the bar tells the same truth and keeps telling it. */
+const MIX_A = [82, 65, 181];        /* --rb-accent  */
+const MIX_B = [240, 239, 246];      /* --rb-line-2  */
+const mixTint = (i, n) => {
+  const t = n <= 1 ? 0 : (i / (n - 1)) * 0.72;
+  const c = MIX_A.map((a, k) => Math.round(a + (MIX_B[k] - a) * t));
+  return `rgb(${c[0]} ${c[1]} ${c[2]})`;
+};
+
+function donut(areas) {
+  const R = 52, C = 2 * Math.PI * R;
+  let at = 0;
+  const rings = areas.map((a, i) => {
+    const len = (a.weight / 100) * C;
+    const el = `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${mixTint(i, areas.length)}"
+      stroke-width="15" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}"
+      stroke-dashoffset="${(-at).toFixed(2)}" transform="rotate(-90 60 60)"></circle>`;
+    at += len;
+    return el;
+  }).join("");
+  return `<svg class="rb-mix-donut" viewBox="0 0 120 120" width="120" height="120" aria-hidden="true">${rings}</svg>`;
+}
+
+function secMix(p, d, ctx) {
+  const m = d.mix;
+  const head = `<div class="rb-zone-head"><span>What this bid demands</span></div>`;
+
+  if (!m.ok) {
+    return `<div class="rb-zone rb-mix">${head}
+      <p class="rb-empty">${esc(m.why)} Add competency hours in Effort &amp; team and the split
+      appears here, or re-run /RFP to read it from the requirements.</p></div>`;
+  }
+
+  const n = m.areas.length;
+  const showDonut = n <= 5 && m.areas.every((a) => a.weight >= 5);
+
+  const bar = `<div class="rb-mix-bar" role="img"
+    aria-label="${esc(m.areas.map((a) => `${a.area} ${a.weight}%`).join(", "))}">
+    ${m.areas.map((a, i) => `<span style="width:${a.weight}%;background:${mixTint(i, n)}"
+      title="${esc(a.area)} — ${a.weight}%"></span>`).join("")}</div>`;
+
+  /* Every weight is a number input. Editing one flips competencyMix.source to
+     "human" — handled by the host, which watches for this collection — so the
+     provenance line below stops claiming a derivation that a person has since
+     overruled. */
+  const rows = m.areas.map((a, i) => `
+    <li class="rb-mix-row" data-el="mix-${esc(a.area)}">
+      <span class="rb-mix-swatch" style="background:${mixTint(i, n)}" aria-hidden="true"></span>
+      <span class="rb-mix-area">
+        <b${edIn(ctx, `competencyMix.areas[area=${a.area}].area`, "")}>${esc(a.area)}</b>
+        ${a.basis || ctx.edit
+          ? `<i${edIn(ctx, `competencyMix.areas[area=${a.area}].basis`, "rb-mix-basis")}>${esc(a.basis)}</i>` : ""}
+        ${a.requirementIds.length
+          ? `<span class="rb-mix-reqs">${a.requirementIds.map((id) =>
+              `<a href="${goHref("compliance")}" data-goto="compliance" data-el="req-${esc(id)}">${esc(id)}</a>`).join("")}</span>` : ""}
+      </span>
+      <span class="rb-mix-lead">${a.lead || ctx.edit
+        ? `<span${edIn(ctx, `competencyMix.areas[area=${a.area}].lead`, "")}>${esc(a.lead || "no lead")}</span>` : ""}</span>
+      <span class="rb-mix-w num">${ctx.edit
+        ? numIn(ctx, "competencyMix.areas", a.area, "weight", a.weight, "area")
+        : `${a.weight}%`}</span>
+    </li>`).join("");
+
+  /* Provenance, always stated. A weight read from the requirement split and a
+     weight inferred from an hour estimate are answers to different questions,
+     and this number exists to be argued with — you cannot argue with it without
+     knowing which one you have. */
+  const prov = {
+    human: "Weights set by hand.",
+    pack: "Read from the requirement split.",
+    hours: "Derived from the hour estimates in Effort & team, not from the requirements.",
+    /* Named plainly. A reader who knows this pursuit predates v5 should be able
+       to see that from the line, and a reader who does not should still know the
+       number came from an old effort estimate rather than the RFP itself. */
+    fte: "Derived from the older effort estimates on this pack, not from the requirements. Re-run /RFP for a split read from the requirements.",
+  }[m.source];
+
+  /* One provenance sentence, not two. Packs routinely carry a note that
+     restates the basis — "read from the requirement split" — which is already
+     what prov says, and printing both makes the line stutter. Whichever of the
+     two contains the other is the one that survives, so a note that genuinely
+     adds a judgment call still gets said, and in the pack author's own words. */
+  const norm = (x) => String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const note = m.source === "pack" ? String(m.note || "") : "";
+  const line = !note ? prov
+    : norm(note).includes(norm(prov).replace(/\.$/, "")) ? note.charAt(0).toUpperCase() + note.slice(1)
+    : norm(prov).includes(norm(note)) ? prov
+    : `${prov} ${note}`;
+
+  return `<div class="rb-zone rb-mix">
+    ${head}
+    <p class="rb-sub rb-small">Effort share of the delivery, by area of expertise. If your area is
+      small here, that is your answer.</p>
+    <div class="rb-mix-viz">
+      ${showDonut ? donut(m.areas) : ""}
+      <div class="rb-mix-main">
+        ${bar}
+        <ul class="rb-mix-list${m.areas.some((a) => a.lead) || ctx.edit ? "" : " no-leads"}">${rows}</ul>
+      </div>
+    </div>
+    <p class="rb-mix-prov rb-small">${esc(line)}
+      ${m.off ? `<b class="rb-mix-off">These weights total ${m.total}%, not 100%.</b>` : ""}
+      ${m.source !== "human" && m.source !== "pack" ? ` <a href="${goHref("team")}" data-goto="team">Effort &amp; team&nbsp;→</a>` : ""}</p>
+  </div>`;
 }
 
 function secSnapshot(p, d, ctx) {
@@ -377,17 +709,6 @@ function secSnapshot(p, d, ctx) {
          </div>
        </div>` : "";
 
-  // Zone 2 — WHO
-  const load = d.ownerLoad;
-  const lead = arr(p.roster).find((r) => /lead/i.test(r.role || ""));
-  const whoBody = load.ok && load.people.length
-    ? `<div class="rb-people">${load.people.map((x) => {
-        const cls = x.open === 0 ? "is-idle" : x.open === load.busiest && load.busiest > 1 ? "is-heavy" : "";
-        return `<span class="rb-person ${cls}"><b>${esc(x.name)}</b><i>${x.open} open</i></span>`;
-      }).join("")}${load.unassigned
-        ? `<span class="rb-person is-heavy"><b>Unassigned</b><i>${load.unassigned}</i></span>` : ""}</div>`
-    : `<p class="rb-empty">No roster captured yet.</p>`;
-
   /* No stage label. It was self-reported and nothing kept it honest, so it went
      stale and taught people to distrust the board. And no "what's needed next"
      list: it restated the top of the Our readiness checklist in a second row
@@ -413,12 +734,12 @@ function secSnapshot(p, d, ctx) {
       ${clientBlock}
       ${verdict}
 
-      <div class="rb-zone">
-        <div class="rb-zone-head"><span>Who's involved</span></div>
-        <p class="rb-sub rb-small" style="margin-bottom:12px">${esc(p.client)}${
-          lead ? ` · our response lead is <b>${esc(lead.name)}</b>` : ""}</p>
-        ${whoBody}
-      </div>
+      ${/* "Who's involved" used to sit here. The people moved to the persistent
+            header, where they are true on every tab: "maybe it's less about who's
+            involved, but WHAT's involved — because people change." What replaced
+            them is the question a competency leader actually opens this brief to
+            ask, and it now leads the tab rather than trailing it. */""}
+      ${secMix(p, d, ctx)}
 
       ${/* No "what's needed next" zone. It listed three open action items with
             owner and due date — which is the top of the Our readiness checklist,
@@ -646,9 +967,18 @@ function listBlock(ctx, key, title, rows, opts = {}) {
             list long enough that scanning it is work. A single chip row over
             three identical rows is noise, not affordance. */""}
       ${(rows.length > 3 || new Set(rows.map((r) => (sev ? r.sev : r.status))).size > 1 || showMine) ? controls : ""}
+      ${/* data-mine is stamped at RENDER time, on the rows that are actually
+            this reader's. It has to be: CSS cannot compare one attribute's value
+            to another's, so the old rule — [data-filter="mine"][data-mine] li[data-owner]
+            — matched every row that had ANY owner. "Mine" showed the whole
+            assigned list to everybody, and silently: the chip lit up, rows
+            disappeared, and the ones left behind looked plausible. Stamping the
+            match keeps filtering a pure CSS state flip, which is the actual
+            constraint (focus survives; nothing re-renders). */""}
       <ul class="rb-rows">${rows.map((r) =>
         `<li${r.status ? ` data-status="${r.status}"` : ""}${r.sev ? ` data-sev="${esc(r.sev)}"` : ""}${
           r.owner ? ` data-owner="${esc(r.owner)}"` : ""}${
+          ctx.me && r.owner === ctx.me ? ` data-mine=""` : ""}${
           r.el ? ` data-el="${esc(r.el)}"` : ""}>${r.html}</li>`).join("")}</ul>
       <p class="rb-empty rb-filter-empty" hidden>Nothing matches that filter.</p>
     </div>
@@ -1842,6 +2172,58 @@ function srcLink(src, ctx) {
    MOUNT
    ============================================================ */
 
+/* ---------- the persistent pursuit header ----------
+   Two things are true on every tab: who is on this, and where we are in time.
+   They used to be a zone on TLDR, which meant they were true everywhere and
+   visible in one place. Now they sit above the tabs and never move.
+
+   The rail is RESPONSE dates only and shows position, never progress. See
+   deriveRail for why that constraint is what makes it trustworthy. */
+const initials = (n) => String(n || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+
+function pursuitHeader(p, d, ctx) {
+  const ppl = d.people, rail = d.rail;
+  if (!ppl.ok && !rail.ok) return "";
+
+  const person = (x, isPoint) => `
+    <button type="button" class="rb-who${isPoint ? " is-point" : ""}${x.late ? " is-late" : ""}"
+      data-who="${esc(x.name)}"
+      title="${esc(x.name)}${x.role ? ` — ${esc(x.role)}` : ""} · ${plural(x.open, "open item")}${
+        x.late ? `, ${x.late} past due` : ""}. Show their items.">
+      <span class="rb-who-av" aria-hidden="true">${esc(initials(x.name))}</span>
+      <span class="rb-who-name">${esc(x.name)}</span>
+      ${x.open ? `<span class="rb-who-n">${x.open}</span>` : ""}
+    </button>`;
+
+  const people = ppl.ok ? `
+    <div class="rb-hdr-people">
+      ${ppl.point ? `<span class="rb-hdr-lab">${ppl.point.source === "stated" ? "Point person" : "Response lead"}</span>${person(ppl.point, true)}` : ""}
+      ${ppl.people.length ? `<span class="rb-hdr-sep" aria-hidden="true"></span>${ppl.people.map((x) => person(x, false)).join("")}` : ""}
+      ${ppl.unassigned ? `<button type="button" class="rb-who is-unassigned" data-who=""
+          title="${plural(ppl.unassigned, "open item")} with no owner. Show them.">
+          <span class="rb-who-name">Unassigned</span><span class="rb-who-n">${ppl.unassigned}</span></button>` : ""}
+    </div>` : "";
+
+  /* Labels are truncated in place rather than dropped: a rail whose middle
+     points are anonymous dots is a decoration. The full label is in the title
+     and the whole point is clickable through to the Timeline. */
+  const track = rail.ok ? `
+    <div class="rb-rail${rail.allPast ? " is-past" : ""}" style="--rb-rail-lanes:${rail.lanes}">
+      <div class="rb-rail-track" role="img"
+        aria-label="Response dates: ${esc(rail.rows.map((r) => `${r.label} ${fmtDate(r.date)}`).join(", "))}">
+        <span class="rb-rail-line" aria-hidden="true"></span>
+        ${rail.todayAt !== null ? `<span class="rb-rail-today" style="left:${rail.todayAt.toFixed(2)}%" aria-hidden="true"><i></i><b>Today</b></span>` : ""}
+        ${rail.rows.map((r) => `
+          <a class="rb-rail-pt${r.submission ? " is-sub" : ""}${r.days < 0 ? " is-done" : ""}"
+             style="left:${r.at.toFixed(2)}%;--rb-lane:${r.lane}" href="${goHref("timeline")}" data-goto="timeline"
+             title="${esc(r.label)} · ${esc(fmtDate(r.date))} · ${r.days < 0 ? `${Math.abs(r.days)} days ago` : `in ${r.days} days`}">
+            <i aria-hidden="true"></i><span>${esc(r.label)}</span></a>`).join("")}
+      </div>
+    </div>` : "";
+
+  return `<div class="rb-hdr">${people}${track}</div>`;
+}
+
 export function renderBrief(pack, mount, opts = {}) {
   const o = {
     section: "snapshot", mode: "read",
@@ -1911,32 +2293,42 @@ export function renderBrief(pack, mount, opts = {}) {
 
   mount.className = "rb" + (ctx.edit ? " is-editing" : "");
   mount.style.setProperty("--rb-head-h", (o.headerHeight || 0) + "px");
+  /* Entries that have at least one live tab. An entry whose every section is
+     absent from this pack emits nothing — no empty heading, no dead tab. */
+  const page = live.filter((x) => !x.chrome);
+  const entries = ENTRIES
+    .map((e) => ({ ...e, tabs: page.filter((x) => x.entry === e.id) }))
+    .filter((e) => e.tabs.length);
+  const remembered = readTabs(pack.briefId);
+
   mount.innerHTML = `
     <div class="rb-shell">
       <nav class="rb-nav" aria-label="Brief sections">
         <div class="rb-nav-eyebrow">${esc(pack.client || "Brief")}</div>
-        ${(() => {
-          const link = (x) => {
-            const c = x.count ? x.count(pack) : null;
-            return `<a href="${goHref(x.id)}" data-goto="${x.id}"><span>${esc(x.label)}</span>${
-              c ? `<span class="rb-nav-count">${c}</span>` : ""}</a>`;
-          };
-          const page = live.filter((x) => !x.chrome);
-          /* Ungrouped items sit above the groups: today that is TLDR alone, and
-             it belongs there because it answers all four intents at once. */
-          const out = [page.filter((x) => !x.group).map(link).join("")];
-          for (const g of GROUPS) {
-            const inG = page.filter((x) => x.group === g);
-            if (!inG.length) continue;   // a group with nothing in it is not a heading
-            out.push(`<div class="rb-nav-group">${esc(g)}</div>${inG.map(link).join("")}`);
-          }
-          return out.join("");
-        })()}
+        ${entries.map((e) => {
+          /* The count on an entry is the sum of its tabs' counts — the reader is
+             choosing a job here, and "Build 14" is the size of the job. It is a
+             quantity, never a state: see the ENTRIES comment. */
+          const c = e.tabs.reduce((t, x) => t + (x.count ? (x.count(pack) || 0) : 0), 0);
+          const first = remembered[e.id] && e.tabs.some((t) => t.id === remembered[e.id])
+            ? remembered[e.id] : e.tabs[0].id;
+          return `<a href="${goHref(first)}" data-goto="${first}" data-entry="${e.id}"><span>${esc(e.label)}</span>${
+            c ? `<span class="rb-nav-count">${c}</span>` : ""}</a>`;
+        }).join("")}
         ${live.some((s) => s.chrome && s.id === "documents")
           ? `<a href="${goHref("documents")}" data-goto="documents" class="rb-nav-chrome"><span>Documents</span><span class="rb-nav-count">${arr(pack.documents).length}</span></a>`
           : ""}
       </nav>
       <main class="rb-main"><div class="rb-col">
+        ${pursuitHeader(pack, d, ctx)}
+        ${entries.filter((e) => e.tabs.length > 1).map((e) => `
+          <div class="rb-tabs" data-tabsfor="${e.id}" role="tablist" aria-label="${esc(e.label)} views" hidden>
+            ${e.tabs.map((t) => {
+              const c = t.count ? t.count(pack) : null;
+              return `<a role="tab" href="${goHref(t.id)}" data-goto="${t.id}" aria-selected="false">${esc(t.label)}${
+                c ? `<span class="rb-tab-n">${c}</span>` : ""}</a>`;
+            }).join("")}
+          </div>`).join("")}
         ${live.map((s) => `<section class="rb-section" id="rb-${s.id}" data-section="${s.id}"></section>`).join("")}
       </div></main>
     </div>
@@ -1972,7 +2364,6 @@ export function renderBrief(pack, mount, opts = {}) {
       list.dataset.filter = want;
       list.querySelectorAll("[data-lchip]").forEach((b) =>
         b.setAttribute("aria-pressed", String(b === chip)));
-      if (want === "mine" && ctx.me) list.dataset.mine = ctx.me;
       // Tell the reader when a filter has hidden everything, rather than
       // showing an empty box that reads as missing data.
       const vis = [...list.querySelectorAll(".rb-rows > li")]
@@ -2006,12 +2397,37 @@ export function renderBrief(pack, mount, opts = {}) {
   });
 
   const show = (id, elId) => {
-    const asked = SECTION_ALIASES[id] || id;
+    /* Resolve in three steps, most specific first: an alias to its section, an
+       ENTRY id to whichever of its tabs this reader last had open, then the
+       section itself. Resolving entry ids means #/b/<pursuit>/decide is a
+       working link, which is what people type when they paste a job rather
+       than a view. */
+    let asked = SECTION_ALIASES[id] || id;
+    const asEntry = entries.find((e) => e.id === asked);
+    if (asEntry) {
+      const seen = readTabs(pack.briefId)[asEntry.id];
+      asked = seen && asEntry.tabs.some((t) => t.id === seen) ? seen : asEntry.tabs[0].id;
+    }
     const target = live.some((s) => s.id === asked) ? asked : "snapshot";
+    const ent = entryOf(target);
+    writeTab(pack.briefId, ent, target);
+
     mount.querySelectorAll(".rb-section").forEach((el) =>
       el.setAttribute("data-active", String(el.dataset.section === target)));
-    mount.querySelectorAll(".rb-nav a").forEach((a) =>
+    /* The nav marks the ENTRY, and its href follows the reader so that clicking
+       away and back returns to the tab they were on rather than the first one. */
+    mount.querySelectorAll(".rb-nav a[data-entry]").forEach((a) => {
+      const on = a.dataset.entry === ent;
+      a.setAttribute("aria-current", String(on));
+      if (on) { a.dataset.goto = target; a.setAttribute("href", goHref(target)); }
+    });
+    mount.querySelectorAll(".rb-nav-chrome").forEach((a) =>
       a.setAttribute("aria-current", String(a.dataset.goto === target)));
+    mount.querySelectorAll(".rb-tabs").forEach((bar) => {
+      bar.hidden = bar.dataset.tabsfor !== ent;
+      bar.querySelectorAll("[role=tab]").forEach((t) =>
+        t.setAttribute("aria-selected", String(t.dataset.goto === target)));
+    });
     if (elId) {
       const el = mount.querySelector(`[data-el="${CSS.escape(elId)}"]`);
       if (el) {
@@ -2023,6 +2439,31 @@ export function renderBrief(pack, mount, opts = {}) {
     }
     o.onNavigate(target);
   };
+
+  /* A person in the header is a way into their work. The action checklist is
+     already grouped BY OWNER, so "filter to this person" is: open Our readiness,
+     make sure their group is expanded, and put it under the reader's eye. No
+     second filtering mechanism, and nobody else's collapse preference is
+     disturbed on the way. */
+  on("click", (e) => {
+    const who = e.target.closest("[data-who]");
+    if (!who) return;
+    e.preventDefault();
+    const key = `act:${who.dataset.who || "Unassigned"}`;
+    show("plan");
+    const list = mount.querySelector(`.rb-list[data-list="${CSS.escape(key)}"]`);
+    if (!list) return;
+    const btn = list.querySelector("[data-lcollapse]");
+    const body = list.querySelector(".rb-list-body");
+    if (btn && btn.getAttribute("aria-expanded") !== "true") {
+      btn.setAttribute("aria-expanded", "true");
+      if (body) body.hidden = false;
+      ctx.collapsed.delete(key);
+      writeCollapsed(pack.briefId, ctx.collapsed);
+    }
+    list.scrollIntoView({ behavior: "smooth", block: "center" });
+    list.classList.remove("rb-flash"); void list.offsetWidth; list.classList.add("rb-flash");
+  });
 
   on("click", (e) => {
     const nav = e.target.closest("[data-goto]");

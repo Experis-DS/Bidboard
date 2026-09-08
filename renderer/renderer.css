@@ -852,9 +852,11 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb-list[data-filter="open"]   .rb-rows > li:not([data-status="open"])   { display: none; }
 .rb-list[data-filter="done"]   .rb-rows > li:not([data-status="done"])   { display: none; }
 .rb-list[data-filter="atRisk"] .rb-rows > li:not([data-status="atRisk"]) { display: none; }
-/* "Mine" is set as an attribute so the comparison stays in CSS. */
-.rb-list[data-filter="mine"] .rb-rows > li { display: none; }
-.rb-list[data-filter="mine"][data-mine] .rb-rows > li[data-owner] { display: revert; }
+/* "Mine" matches the rows stamped data-mine at render time. It used to be
+   [data-filter="mine"][data-mine] li[data-owner], which shows every row that has
+   an owner — CSS cannot compare one attribute's value against another's, so the
+   filter quietly showed the whole assigned list to every reader. */
+.rb-list[data-filter="mine"] .rb-rows > li:not([data-mine]) { display: none; }
 
 /* Color is rationed: the deadline red, and this three-state token. Two
    participants asked for a red/amber/green scale; this is the concession, and
@@ -1141,3 +1143,179 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb-contacts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; }
 .rb-contact { display: inline-flex; align-items: baseline; gap: 7px; }
 .rb-contact b { font-weight: 650; }
+
+/* ============================================================
+   3.4.0 — PERSISTENT HEADER, TABS, COMPETENCY MIX
+   ------------------------------------------------------------
+   Nothing here introduces a color. The mix is one hue at
+   descending tints (magnitude, not category) computed in JS from
+   --rb-accent toward --rb-line-2; the rail and the header borrow
+   the existing ink ramp and the one urgent red.
+   ============================================================ */
+
+/* ---- the persistent pursuit header ---- */
+.rb-hdr {
+  display: grid; gap: var(--rb-s3);
+  padding-bottom: var(--rb-s3); margin-bottom: var(--rb-s4);
+  border-bottom: 1px solid var(--rb-line);
+}
+.rb-hdr-people { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rb-hdr-lab {
+  font-size: var(--rb-t-micro); font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--rb-gray-2); margin-right: 2px;
+}
+.rb-hdr-sep { width: 1px; align-self: stretch; background: var(--rb-line); margin: 2px 8px; }
+
+.rb .rb-who {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 9px 3px 3px; border-radius: 999px;
+  border: 1px solid var(--rb-line); background: var(--rb-bg);
+  font-size: var(--rb-t-small); color: var(--rb-gray);
+  transition: border-color .1s ease, color .1s ease;
+}
+.rb .rb-who:hover { border-color: var(--rb-gray-2); color: var(--rb-ink); }
+.rb .rb-who:focus-visible { outline: 2px solid var(--rb-accent); outline-offset: 2px; }
+.rb-who-av {
+  display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--rb-line-2); color: var(--rb-gray);
+  font-size: 10px; font-weight: 700; letter-spacing: .02em;
+}
+.rb-who-name { font-weight: 600; color: var(--rb-ink-2); }
+.rb-who-n {
+  font-variant-numeric: tabular-nums; font-size: var(--rb-t-micro); font-weight: 700;
+  color: var(--rb-gray-2); padding-left: 4px; border-left: 1px solid var(--rb-line);
+}
+.rb .rb-who.is-point { border-color: var(--rb-accent-2); }
+.rb .rb-who.is-point .rb-who-av { background: var(--rb-accent-soft); color: var(--rb-accent); }
+/* Past due is the one place the urgent red is spent here, and it marks the
+   person's count only — never the whole chip, which would read as a judgment. */
+.rb .rb-who.is-late .rb-who-n { color: var(--rb-urgent); }
+.rb .rb-who.is-unassigned { padding-left: 9px; border-style: dashed; }
+
+/* ---- the date rail: position in time, never progress ---- */
+.rb-rail { padding: 2px 0 4px; --rb-rail-lanes: 1; }
+/* One lane of labels is 22px. The track grows only as far as the lanes actually
+   used, so an evenly spread rail stays as short as it always was. */
+.rb-rail-track {
+  position: relative; margin: 0 10px;
+  height: calc(24px + var(--rb-rail-lanes) * 22px);
+}
+.rb-rail-line {
+  position: absolute; left: 0; right: 0; top: 7px; height: 2px;
+  background: var(--rb-line); border-radius: 2px;
+}
+.rb .rb-rail-pt {
+  position: absolute; top: 0; transform: translateX(-50%);
+  display: grid; justify-items: center; gap: 4px; max-width: 13ch;
+  color: var(--rb-gray-2); font-size: var(--rb-t-micro); line-height: 1.25; text-decoration: none;
+  --rb-lane: 0;
+}
+/* The dot never moves — only the label steps down. A leader line keeps a
+   stepped label attached to the point it belongs to, which is the whole reason
+   the stagger is legible rather than just scattered. */
+.rb .rb-rail-pt span { margin-top: calc(var(--rb-lane) * 22px); position: relative; }
+.rb .rb-rail-pt[style*="--rb-lane:1"] span::before,
+.rb .rb-rail-pt[style*="--rb-lane:2"] span::before {
+  content: ""; position: absolute; left: 50%; bottom: 100%;
+  width: 1px; height: calc(var(--rb-lane) * 22px);
+  background: var(--rb-line);
+}
+.rb .rb-rail-pt i {
+  width: 9px; height: 9px; border-radius: 50%; margin-top: 4px;
+  background: var(--rb-bg); border: 2px solid var(--rb-gray-3);
+}
+.rb .rb-rail-pt span {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; text-align: center;
+}
+.rb-rail-today { z-index: 1; }
+.rb .rb-rail-pt:hover { text-decoration: none; color: var(--rb-ink); }
+.rb .rb-rail-pt:hover i { border-color: var(--rb-accent); }
+.rb .rb-rail-pt.is-done i { background: var(--rb-line); border-color: var(--rb-line); }
+.rb .rb-rail-pt.is-done span { color: var(--rb-gray-3); }
+.rb .rb-rail-pt.is-sub i { background: var(--rb-accent); border-color: var(--rb-accent); }
+.rb .rb-rail-pt.is-sub span { color: var(--rb-ink-2); font-weight: 650; }
+.rb-rail-today { position: absolute; top: -2px; bottom: 0; transform: translateX(-50%); }
+.rb-rail-today i {
+  position: absolute; top: 8px; bottom: 8px; left: 50%; width: 1px;
+  background: var(--rb-urgent); opacity: .55;
+}
+.rb-rail-today b {
+  position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--rb-urgent); white-space: nowrap;
+}
+.rb-rail.is-past .rb-rail-line { opacity: .6; }
+
+/* ---- tabs: the views inside one job ---- */
+.rb-tabs {
+  display: flex; flex-wrap: wrap; gap: 2px;
+  margin: 0 0 var(--rb-s4); border-bottom: 1px solid var(--rb-line);
+}
+.rb .rb-tabs a {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 7px 12px; margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--rb-gray); font-size: 13.5px; font-weight: 550; text-decoration: none;
+  transition: color .1s ease, border-color .1s ease;
+}
+.rb .rb-tabs a:hover { color: var(--rb-ink); text-decoration: none; }
+.rb .rb-tabs a[aria-selected="true"] {
+  color: var(--rb-ink); font-weight: 700; border-bottom-color: var(--rb-accent);
+}
+.rb-tab-n {
+  font-size: var(--rb-t-micro); color: var(--rb-gray-2); font-variant-numeric: tabular-nums;
+}
+.rb .rb-tabs a[aria-selected="true"] .rb-tab-n { color: var(--rb-accent); }
+
+/* ---- competency mix ---- */
+.rb-mix-viz { display: flex; align-items: flex-start; gap: var(--rb-s4); }
+.rb-mix-main { flex: 1; min-width: 0; }
+.rb-mix-donut { flex: none; }
+.rb-mix-bar {
+  display: flex; height: 12px; border-radius: 999px; overflow: hidden;
+  background: var(--rb-line-2); margin-bottom: var(--rb-s3);
+}
+.rb-mix-bar > span { display: block; min-width: 2px; }
+
+.rb-mix-list { display: grid; gap: 2px; }
+.rb-mix-row {
+  display: grid; grid-template-columns: 10px minmax(0, 1fr) 12ch 5ch;
+  gap: 10px; align-items: baseline;
+  padding: 7px 0; border-top: 1px solid var(--rb-line-2);
+}
+/* No leads assigned anywhere yet — which is the norm at ingest — so the column
+   is not reserved. An empty 12ch gutter down the middle of the list reads as a
+   rendering fault, and leads arrive later on most pursuits. */
+.rb-mix-list.no-leads .rb-mix-row { grid-template-columns: 10px minmax(0, 1fr) 5ch; }
+.rb-mix-list.no-leads .rb-mix-lead { display: none; }
+.rb-mix-row:first-child { border-top: 0; }
+/* Aligned to the FIRST line, not the row. Centring it put the swatch beside the
+   basis line on any row whose text wrapped, which read as a bullet belonging to
+   the basis rather than a key to the area above it. */
+.rb-mix-swatch { width: 10px; height: 10px; border-radius: 3px; align-self: start; margin-top: 5px; }
+.rb-mix-area { display: grid; gap: 2px; min-width: 0; }
+.rb-mix-area > b { font-weight: 650; }
+.rb-mix-basis { color: var(--rb-gray-2); font-size: var(--rb-t-small); font-style: normal; }
+.rb-mix-reqs { display: flex; flex-wrap: wrap; gap: 6px; }
+.rb .rb-mix-reqs a {
+  font-size: var(--rb-t-micro); font-variant-numeric: tabular-nums;
+  color: var(--rb-gray-2); border-bottom: 1px dotted var(--rb-line);
+}
+.rb .rb-mix-reqs a:hover { color: var(--rb-accent); text-decoration: none; border-bottom-color: var(--rb-accent); }
+.rb-mix-lead { color: var(--rb-gray-2); font-size: var(--rb-t-small); }
+.rb-mix-w { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.rb-mix-prov { color: var(--rb-gray-2); margin-top: var(--rb-s3); }
+.rb-mix-off { color: var(--rb-urgent); font-weight: 650; }
+
+@media (max-width: 900px) {
+  .rb-mix-viz { display: block; }
+  .rb-mix-donut { display: none; }
+  .rb-mix-row { grid-template-columns: 10px minmax(0, 1fr) 5ch; }
+  .rb-mix-lead { display: none; }
+  .rb-rail-track { height: 52px; }
+}
+@media print {
+  .rb-tabs { display: none !important; }
+  .rb-hdr { break-inside: avoid; }
+}

@@ -5,7 +5,7 @@
    ============================================================ */
 
 import { initStore, store, listPursuits, getPack, getPackBase, applyOverrides, getPursuit, putPursuit, updateIndex, deletePursuit, appendActivity, getAssetBytes, getAssetBytesLocal, ASSET_MAX_BYTES, getElements, setElement, replaceElements, listActivity, saveCheckpoint, listCheckpoints, deleteElement, subscribeBrief, subscribePursuits } from "./store.js";
-import { validate, askLine, CURRENT_SCHEMA, MIN_SCHEMA } from "./schema.js";
+import { validate, askLine, coverage, CURRENT_SCHEMA, MIN_SCHEMA } from "./schema.js";
 import { unzip, asJson } from "./unzip.js";
 import { renderBrief, derive, RENDERER_VERSION } from "./renderer/renderer.js";
 import { mountComments, unmountComments, refreshComments } from "./comments.js";
@@ -17,7 +17,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 let CONFIG = { hubName: "Bid Board", baseUrl: "", hubVersion: "1.1.0" };
 let LIBRARY = [];
 let LIB_UNSUB = null;
-const view = { filter: "all", sort: "deadline", q: "" };
+const view = { filter: "all", phase: "any", owner: "any", sort: "deadline", q: "" };
 
 const DAY = 864e5;
 const days = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : Math.ceil((d - new Date().setHours(0, 0, 0, 0)) / DAY); };
@@ -166,6 +166,7 @@ function route() {
   });
 
   if (inBrief) return screenBrief(a, b);
+  if (head === "analytics") return screenAnalytics();
   if (head === "import") return screenImport();
   if (head === "skills") return screenSkills();
   if (head === "help") return screenHelp();
@@ -246,6 +247,20 @@ function paintLibrary() {
           { all: "All", open: "Open", soon: "Due this week", closed: "Closed" }[f]
         }<b>${counts(f)}</b></button>`).join("")}
       <span class="spacer"></span>
+      <select id="phase" aria-label="Phase">
+        <option value="any"${view.phase === "any" ? " selected" : ""}>Any phase</option>
+        ${Object.entries(PHASES).map(([k, label]) => {
+          const n = LIBRARY.filter((x) => phaseOf(x) === k).length;
+          return `<option value="${k}"${view.phase === k ? " selected" : ""}${n ? "" : " disabled"}>${label} (${n})</option>`;
+        }).join("")}
+      </select>
+      <select id="owner" aria-label="Owner">
+        <option value="any"${view.owner === "any" ? " selected" : ""}>Anyone</option>
+        ${allOwners().map((n) => {
+          const c = LIBRARY.filter((x) => ownersOf(x).includes(n)).length;
+          return `<option value="${esc(n)}"${view.owner === n ? " selected" : ""}>${esc(n)} (${c})</option>`;
+        }).join("")}
+      </select>
       <input type="search" id="q" placeholder="Search client or id" value="${esc(view.q)}">
       <select id="sort">
         <option value="deadline"${view.sort === "deadline" ? " selected" : ""}>Deadline</option>
@@ -253,6 +268,7 @@ function paintLibrary() {
         <option value="client"${view.sort === "client" ? " selected" : ""}>Client A–Z</option>
       </select>
     </div>
+    <p class="lib-note muted small" id="libNote"></p>
     <div class="cards" id="cards"></div>
     ${modeNote() ? `<div style="margin-top:26px">${modeNote()}</div>` : ""}`);
 
@@ -264,6 +280,15 @@ function paintLibrary() {
   });
   $("#q").addEventListener("input", (e) => { view.q = e.target.value; paintCards(); });
   $("#sort").addEventListener("change", (e) => { view.sort = e.target.value; paintCards(); });
+  $("#phase").addEventListener("change", (e) => { view.phase = e.target.value; paintCards(); });
+  $("#owner").addEventListener("change", (e) => { view.owner = e.target.value; paintCards(); });
+}
+
+/* Every name the library knows, from the roster, the action items and the point
+   person of every pursuit. Built from the index docs, so opening the filter
+   costs no reads. */
+function allOwners() {
+  return [...new Set(LIBRARY.flatMap(ownersOf))].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
 /* Filters derive from the DEADLINE, never from a stage field.
@@ -271,6 +296,43 @@ function paintLibrary() {
    moves when a human remembers to move it, and a stale "Drafting" on a pursuit
    submitted three weeks ago is worse than no label at all. A deadline is in the
    documents, so these buckets are always true without anyone maintaining them. */
+/* ---------- derived phase ----------
+   "Group it by stage" was never a question about one bid: "if I filter to
+   Andreas, I've got one RFP in early phase, two in middle, one in late." So
+   phase is a PORTFOLIO lens, and like every other bucket on this page it is
+   derived and never written down. The six-step stage field was removed for
+   exactly this reason — it only moved when somebody remembered to move it.
+
+   Two honest signals, and we take the further along of the two: how much of the
+   window from import to deadline has elapsed, and how ready we actually are.
+   Time alone would call a finished bid "early" the week it was imported; readiness
+   alone would never move on a pursuit nobody has touched. Neither is editable
+   and neither can go stale, because both recompute on every render. */
+const PHASES = { early: "Early", mid: "Mid", late: "Late", closed: "Closed" };
+
+function phaseOf(p) {
+  const d = days(p.deadline);
+  if (d !== null && d < 0) return "closed";
+  if (p.outcome && p.outcome.status && p.outcome.status !== "pending") return "closed";
+
+  const ready = typeof p.readiness === "number" ? p.readiness : 0;
+  let elapsed = 0;
+  const start = p.importedAt ? new Date(p.importedAt).getTime() : NaN;
+  const end = p.deadline ? new Date(p.deadline).getTime() : NaN;
+  if (!isNaN(start) && !isNaN(end) && end > start) {
+    elapsed = Math.max(0, Math.min(1, (Date.now() - start) / (end - start)));
+  }
+  /* No deadline and no readiness is not "early", it is unknown — but a bucket
+     called unknown would collect every thin pack and tell nobody anything, and
+     a freshly imported pursuit genuinely is early. Say early, and let the
+     readiness column on the card carry the caveat. */
+  const progress = Math.max(elapsed, ready);
+  return progress >= 0.67 ? "late" : progress >= 0.34 ? "mid" : "early";
+}
+
+const ownersOf = (p) => (Array.isArray(p.owners) && p.owners.length ? p.owners
+  : [p.pointPerson].filter(Boolean));
+
 function matchFilter(p, f) {
   if (f === "all") return true;
   const d = days(p.deadline);
@@ -282,6 +344,8 @@ function matchFilter(p, f) {
 function paintCards() {
   const q = view.q.trim().toLowerCase();
   let rows = LIBRARY.filter((p) => matchFilter(p, view.filter))
+    .filter((p) => view.phase === "any" || phaseOf(p) === view.phase)
+    .filter((p) => view.owner === "any" || ownersOf(p).includes(view.owner))
     .filter((p) => !q || `${p.client} ${p.title} ${p.briefId}`.toLowerCase().includes(q));
 
   rows.sort((a, b) => {
@@ -295,6 +359,28 @@ function paintCards() {
   $("#cards").innerHTML = rows.length
     ? rows.map(card).join("")
     : `<p class="muted">Nothing matches that.</p>`;
+
+  /* Say what is being hidden and offer the way back. A filtered list that looks
+     like the whole list is how somebody concludes the board is missing a
+     pursuit that is sitting right there behind a select they forgot. */
+  const narrowed = [
+    view.filter !== "all" ? { k: "filter", v: "all", t: { open: "Open", soon: "Due this week", closed: "Closed" }[view.filter] } : null,
+    view.phase !== "any" ? { k: "phase", v: "any", t: PHASES[view.phase] + " phase" } : null,
+    view.owner !== "any" ? { k: "owner", v: "any", t: view.owner } : null,
+    q ? { k: "q", v: "", t: `"${view.q.trim()}"` } : null,
+  ].filter(Boolean);
+  const note = $("#libNote");
+  if (note) {
+    note.innerHTML = narrowed.length
+      ? `Showing <b>${rows.length}</b> of ${LIBRARY.length} · ${narrowed.map((x) => esc(x.t)).join(" · ")}
+         <button class="linkish" id="clearFilters">Clear</button>`
+      : "";
+    const clear = $("#clearFilters");
+    if (clear) clear.addEventListener("click", () => {
+      view.filter = "all"; view.phase = "any"; view.owner = "any"; view.q = "";
+      paintLibrary();
+    });
+  }
 }
 
 function card(p) {
@@ -445,8 +531,19 @@ function importRefused(r) {
       esc(CONFIG.hubVersion)} — quote this line if you report it</p>`);
 }
 
+const SECTION_NAMES = {
+  ask: "the ask", verdict: "our read", clientContext: "the client",
+  competencyMix: "competency mix", submission: "how to submit", dates: "key dates",
+  rules: "rules of the bid", scorecard: "scoring & fit", requirements: "delivery scope",
+  actionItems: "our readiness", roster: "the people", team: "effort & team",
+  questions: "questions to client", signals: "bid signals", risks: "risks",
+  decisions: "decisions", parkingLot: "open items", meetings: "meetings",
+  documents: "documents",
+};
+
 function importReview() {
   const s = staged.summary, up = !!staged.existing;
+  const cov = coverage(staged.pack);
   importStep(3, `
     <div class="notice ${up ? "" : "good"}">
       <b>${up ? "Update an existing pursuit" : "New pursuit"}</b><br>
@@ -458,12 +555,32 @@ function importReview() {
       <dt>Contents</dt><dd>${s.counts.requirements} requirements · ${s.counts.actionItems} action items ·
         ${s.counts.questions} questions · ${s.counts.documents} documents</dd>
       <dt>Built by /RFP</dt><dd>${s.generatedAt ? esc(fmtDate(s.generatedAt)) : "<span class='muted'>unknown</span>"}</dd>
+      <dt>Populates</dt><dd>${cov.present} of ${cov.total} sections${
+        cov.thin ? "" : cov.missing.length ? ` <span class="muted small">— ${
+          esc(cov.missing.map((k) => SECTION_NAMES[k] || k).join(", "))} empty</span>` : ""}</dd>
+      ${/* The portfolio fields. Stated here because a pack without them imports
+            perfectly and then contributes nothing to Analytics, and the runner
+            should learn that now rather than as a gap in a chart weeks later. */""}
+      <dt>Portfolio</dt><dd>${[
+        s.industry ? esc(s.industry) : null,
+        s.bidValue ? `$${Math.round(Number(s.bidValue.amount)).toLocaleString()}` : null,
+        s.competencyMix ? `${s.competencyMix} competencies` : null,
+        s.pointPerson ? esc(s.pointPerson) : null,
+      ].filter(Boolean).join(" · ") || `<span class="muted">no industry, bid value or competency split — this pursuit won't appear in the Analytics charts</span>`}</dd>
       ${staged.migratedFrom ? `<dt>Schema</dt><dd>migrated from v${staged.migratedFrom} to v${CURRENT_SCHEMA}</dd>` : ""}
       ${staged.assets.size ? `<dt>Files</dt><dd>${staged.assets.size} attached${
         CONFIG.carryDocuments === false ? " — kept in this browser only" : " — carried by the site"}${
         [...staged.assets.values()].some((b) => b.byteLength > ASSET_MAX_BYTES)
           ? `<br><span class="muted small">Anything over ${Math.round(ASSET_MAX_BYTES / 1048576)} MB stays local — too large for a Firestore document set.</span>` : ""}</dd>` : ""}
     </dl>
+    ${cov.thin ? `<div class="notice bad" style="margin-top:16px">
+      <b>This pack fills ${cov.present} of ${cov.total} sections.</b>
+      Empty: ${esc(cov.missing.map((k) => SECTION_NAMES[k] || k).join(", "))}.
+      A genuinely thin RFP looks like this and imports fine. So does a pack whose content
+      is in a shape this site does not read${cov.hidden.length
+        ? ` — and this one carries <code>${esc(cov.hidden.join("</code>, <code>"))}</code> at the root,
+            which usually means the content is nested inside it` : ""}.
+      Worth opening the brief straight after importing to check.</div>` : ""}
     ${up ? `<div class="notice" style="margin-top:16px">
       Edits the team has made here since the last import are kept — they layer on top of the
       new pack rather than being replaced by it. Only the imported content changes.</div>` : ""}
@@ -493,6 +610,27 @@ function indexFromPack(pack, o = {}) {
       openItems: (pack.actionItems || []).filter((i) => i.status !== "done").length,
       questions: (pack.questions || []).length,
     },
+    /* Portfolio fields, denormalised onto the INDEX doc on purpose. The
+       Analytics page asks questions across every pursuit at once; reading a
+       whole pack per card to answer "win rate by industry" would be one Storage
+       fetch per pursuit on a page that exists to be glanced at. These are small,
+       flat, and refreshed on every import and every brief open. */
+    industry: pack.industry || null,
+    bidValue: pack.bidValue && Number(pack.bidValue.amount)
+      ? { amount: Number(pack.bidValue.amount), currency: pack.bidValue.currency || "USD" } : null,
+    outcome: pack.outcome && pack.outcome.status
+      ? { status: pack.outcome.status, closedAt: pack.outcome.closedAt || null, reason: pack.outcome.reason || "" }
+      : { status: "pending", closedAt: null, reason: "" },
+    pointPerson: (pack.pointPerson && pack.pointPerson.name) || null,
+    /* The mix as the board needs it: area and weight, nothing else. Derived
+       through the renderer so a v4 pack contributes its hours-based split
+       rather than nothing at all. */
+    mix: (derive(pack).mix.areas || []).map((a) => ({ area: a.canonical || a.area, weight: a.weight })),
+    owners: [...new Set([
+      ...(pack.roster || []).map((r) => r.name),
+      ...(pack.actionItems || []).map((i) => i.owner),
+      (pack.pointPerson && pack.pointPerson.name) || null,
+    ].filter(Boolean))],
     schemaVersion: CURRENT_SCHEMA, rendererVersionAtImport: RENDERER_VERSION,
     packBytes: JSON.stringify(pack).length,
     assets: o.assets || [],
@@ -535,6 +673,322 @@ async function doImport() {
   } catch (e) {
     importRefused({ reason: "Saving failed: " + (e.message || e), hint: "Nothing was changed. Check the connection and try again." });
   }
+}
+
+/* ============================================================
+   ANALYTICS — the questions no single brief can answer
+   ------------------------------------------------------------
+   Everything here reads the INDEX docs the Library already has in
+   memory. No pack fetches, no second source of truth, no sample
+   data ever.
+
+   SMALL-n HONESTY IS THE FEATURE. This board will run for a long
+   time on a handful of real pursuits, and it has to look useful and
+   truthful at four, because four is what it has. So: every chart
+   states its n; a win rate over fewer than three closed pursuits is
+   not drawn at all — the bucket says how many it has and that this
+   is too few to rate; trends need three distinct months or the
+   section shows the raw counts and says why. A confident-looking
+   100% built on one win is the single fastest way to make this page
+   worthless, because the first person to notice stops believing the
+   rest of it.
+
+   Charts are hand-drawn — inline SVG for the trend, CSS bars for
+   everything horizontal. No library, no CDN, no build step, same as
+   the rest of the site.
+   ============================================================ */
+
+const MIN_RATE_N = 3;      /* below this we report the count, never a rate */
+const MIN_TREND_MONTHS = 3;
+
+const CLOSED = new Set(["won", "lost", "no-bid"]);
+const outcomeOf = (p) => (p.outcome && p.outcome.status) || "pending";
+const isClosed = (p) => CLOSED.has(outcomeOf(p));
+const money0 = (n) => (Number(n) ? `$${Math.round(Number(n)).toLocaleString()}` : "—");
+
+/* Won / (won + lost). A no-bid is a decision, not a loss: counting it as one
+   would punish the board for the thing it is most useful for — helping somebody
+   walk away early. It is reported separately and never inside the rate. */
+function rate(rows) {
+  const won = rows.filter((p) => outcomeOf(p) === "won").length;
+  const lost = rows.filter((p) => outcomeOf(p) === "lost").length;
+  const n = won + lost;
+  return { won, lost, n, value: n ? won / n : null,
+    noBid: rows.filter((p) => outcomeOf(p) === "no-bid").length };
+}
+
+const BID_BANDS = [
+  { id: "u250", label: "Under $250k",  test: (v) => v < 250e3 },
+  { id: "m",    label: "$250k – $1M",  test: (v) => v >= 250e3 && v < 1e6 },
+  { id: "l",    label: "$1M – $5M",    test: (v) => v >= 1e6 && v < 5e6 },
+  { id: "xl",   label: "$5M and up",   test: (v) => v >= 5e6 },
+];
+
+function analyticsScreen() {
+  const all = LIBRARY;
+  if (!all.length) {
+    return wrap(`
+      <div class="page-head"><div class="eyebrow">Analytics</div>
+        <h1 class="h1">Nothing to analyse yet</h1>
+        <p class="sub">This page reads every pursuit in the library. Import one and it starts
+          answering questions a single brief cannot — what we keep winning, what we keep losing,
+          and which competencies the pipeline is actually asking for.</p></div>
+      <p><a class="btn btn-primary" href="#/import">Import a pursuit</a></p>`, true);
+  }
+
+  const closed = all.filter(isClosed);
+  const r = rate(closed);
+  const soon = all.filter((p) => { const d = days(p.deadline); return d !== null && d >= 0 && d <= 7; }).length;
+
+  return wrap(`
+    <div class="page-head">
+      <div class="eyebrow">Analytics</div>
+      <h1 class="h1">The portfolio</h1>
+      <p class="sub">Every pursuit in the library, together. ${all.length === 1
+        ? "One pursuit so far — most of this page needs a few more before it can say anything honest."
+        : `${all.length} pursuits, ${closed.length} closed.`}</p>
+    </div>
+
+    <div class="kpis">
+      ${kpi("Pursuits", all.length, "in the library")}
+      ${kpi("Open", all.length - closed.length, soon ? `${soon} due this week` : "none due this week")}
+      ${kpi("Closed", closed.length, r.noBid ? `${r.noBid} no-bid` : "")}
+      ${r.value === null || r.n < MIN_RATE_N
+        ? kpi("Win rate", "—", `${r.n} decided — too few to rate`)
+        : kpi("Win rate", `${Math.round(r.value * 100)}%`, `${r.won} of ${r.n} decided`)}
+    </div>
+
+    ${sectionTrend(all)}
+    ${sectionStatus(all)}
+    ${sectionCompetency(all)}
+    ${sectionRate("Win rate by industry", byIndustry(all), "No pursuit carries an industry yet. /RFP emits it at ingest from schema v5 on.")}
+    ${sectionRate("Win rate by bid size", byBand(all), "No pursuit carries a disclosed bid value. That is often the RFP's doing, not a gap in the pack.")}
+    ${sectionReasons(closed)}
+    ${sectionClosures(closed)}
+  `);
+}
+
+const kpi = (label, value, note) => `
+  <div class="kpi"><span class="kpi-l">${esc(label)}</span>
+    <span class="kpi-v num">${esc(String(value))}</span>
+    ${note ? `<span class="kpi-n">${esc(note)}</span>` : ""}</div>`;
+
+const secHead = (title, n) => `
+  <div class="an-head"><h2 class="h2">${esc(title)}</h2>${
+    n ? `<span class="an-n">${esc(n)}</span>` : ""}</div>`;
+
+/* ---- monthly trend ---- */
+function sectionTrend(all) {
+  const key = (v) => (v ? String(v).slice(0, 7) : null);
+  const months = {};
+  for (const p of all) {
+    const k = key(p.importedAt);
+    if (!k) continue;
+    months[k] = months[k] || { in: 0, won: 0, lost: 0 };
+    months[k].in++;
+  }
+  for (const p of all.filter(isClosed)) {
+    const k = key(p.outcome && p.outcome.closedAt);
+    if (!k) continue;
+    months[k] = months[k] || { in: 0, won: 0, lost: 0 };
+    if (outcomeOf(p) === "won") months[k].won++;
+    if (outcomeOf(p) === "lost") months[k].lost++;
+  }
+  const keys = Object.keys(months).sort();
+
+  if (keys.length < MIN_TREND_MONTHS) {
+    return `<section class="an-sec">${secHead("Over time", `${keys.length} month${keys.length === 1 ? "" : "s"} of data`)}
+      <p class="muted">A trend needs at least ${MIN_TREND_MONTHS} distinct months before a line
+        through it means anything. So far: ${keys.length
+          ? keys.map((k) => `<b>${esc(monthLabel(k))}</b> ${months[k].in} imported`).join(" · ")
+          : "nothing dated yet"}.</p></section>`;
+  }
+
+  const max = Math.max(...keys.map((k) => months[k].in), 1);
+  const W = 720, H = 150, PAD = 26;
+  const x = (i) => PAD + (i / (keys.length - 1)) * (W - PAD * 2);
+  const y = (v) => H - PAD - (v / max) * (H - PAD * 2);
+  const line = keys.map((k, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(months[k].in).toFixed(1)}`).join(" ");
+
+  return `<section class="an-sec">
+    ${secHead("Over time", `${keys.length} months · ${all.length} pursuits`)}
+    <svg class="an-svg" viewBox="0 0 ${W} ${H}" role="img"
+      aria-label="Pursuits imported per month: ${esc(keys.map((k) => `${monthLabel(k)} ${months[k].in}`).join(", "))}">
+      <line x1="${PAD}" y1="${H - PAD}" x2="${W - PAD}" y2="${H - PAD}" stroke="var(--line)" />
+      <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"
+        stroke-linejoin="round" stroke-linecap="round" />
+      ${keys.map((k, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(months[k].in).toFixed(1)}" r="3.5"
+        fill="var(--accent)"><title>${esc(monthLabel(k))} — ${months[k].in} imported</title></circle>`).join("")}
+      ${keys.map((k, i) => `<text x="${x(i).toFixed(1)}" y="${H - 8}" text-anchor="middle"
+        font-size="10" fill="var(--gray-2)">${esc(monthLabel(k, true))}</text>`).join("")}
+    </svg>
+    <p class="small muted">Pursuits imported per month. Peak ${max} in one month.</p>
+  </section>`;
+}
+
+function monthLabel(k, short) {
+  const [y, m] = k.split("-");
+  const name = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(m) - 1] || k;
+  return short ? name : `${name} ${y}`;
+}
+
+/* ---- status split ---- */
+function sectionStatus(all) {
+  const order = [["pending", "Open"], ["won", "Won"], ["lost", "Lost"], ["no-bid", "No-bid"]];
+  const counts = order.map(([k, label]) => ({ k, label, n: all.filter((p) => outcomeOf(p) === k).length }));
+  const total = all.length || 1;
+  return `<section class="an-sec">
+    ${secHead("Where they stand", `${all.length} pursuits`)}
+    <div class="an-split" role="img" aria-label="${esc(counts.map((c) => `${c.label} ${c.n}`).join(", "))}">
+      ${counts.filter((c) => c.n).map((c) =>
+        `<span data-k="${c.k}" style="width:${((c.n / total) * 100).toFixed(2)}%" title="${esc(c.label)} — ${c.n}"></span>`).join("")}
+    </div>
+    <ul class="an-key">${counts.map((c) =>
+      `<li><i data-k="${c.k}"></i>${esc(c.label)} <b class="num">${c.n}</b></li>`).join("")}</ul>
+  </section>`;
+}
+
+/* ---- competency demand ---- */
+function sectionCompetency(all) {
+  const withMix = all.filter((p) => Array.isArray(p.mix) && p.mix.length);
+  if (!withMix.length) {
+    return `<section class="an-sec">${secHead("What the pipeline is asking for")}
+      <p class="muted">No pursuit carries a competency split yet. Re-import from a schema v5 pack,
+        or add competency hours in Effort &amp; team on any brief, and the demand appears here.</p></section>`;
+  }
+  /* Mean weight across the pursuits that HAVE a mix — not a sum, and not a mean
+     over all pursuits. A sum would say more about how many bids we logged than
+     about what they demanded, and dividing by pursuits with no mix at all would
+     quietly deflate every area toward zero as the library grows. */
+  const tally = {};
+  for (const p of withMix) for (const a of p.mix) {
+    tally[a.area] = tally[a.area] || { area: a.area, sum: 0, seen: 0 };
+    tally[a.area].sum += Number(a.weight) || 0;
+    tally[a.area].seen++;
+  }
+  const rows = Object.values(tally)
+    .map((t) => ({ area: t.area, mean: t.sum / withMix.length, seen: t.seen }))
+    .sort((a, b) => b.mean - a.mean);
+  const max = Math.max(...rows.map((r) => r.mean), 1);
+
+  return `<section class="an-sec">
+    ${secHead("What the pipeline is asking for", `${withMix.length} of ${all.length} pursuits carry a split`)}
+    <ul class="an-bars">${rows.map((r) => `
+      <li><span class="an-bar-l">${esc(r.area)}</span>
+        <span class="an-bar"><i style="width:${((r.mean / max) * 100).toFixed(1)}%"></i></span>
+        <span class="an-bar-v num">${r.mean.toFixed(0)}%</span>
+        <span class="an-bar-n">${r.seen} bid${r.seen === 1 ? "" : "s"}</span></li>`).join("")}</ul>
+    <p class="small muted">Average share of delivery effort across the pursuits that carry a split.</p>
+  </section>`;
+}
+
+/* ---- win rate by bucket ---- */
+function byIndustry(all) {
+  const g = {};
+  for (const p of all) {
+    const k = p.industry;
+    if (!k) continue;
+    (g[k] = g[k] || []).push(p);
+  }
+  return Object.entries(g).map(([label, rows]) => ({ label, rows, ...rate(rows) }))
+    .sort((a, b) => b.n - a.n || b.rows.length - a.rows.length);
+}
+
+function byBand(all) {
+  return BID_BANDS.map((b) => {
+    const rows = all.filter((p) => p.bidValue && b.test(Number(p.bidValue.amount)));
+    return { label: b.label, rows, ...rate(rows) };
+  }).filter((b) => b.rows.length);
+}
+
+/* What the bucket holds beyond its decided pursuits. A no-bid is closed, so
+   calling it "still open" — which this did — misreports the one outcome the
+   board most wants people to feel free to choose. Count the two separately. */
+function remainder(b) {
+  const open = b.rows.length - b.n - b.noBid;
+  const bits = [];
+  if (b.noBid) bits.push(`${b.noBid} no-bid`);
+  if (open > 0) bits.push(`${open} still open`);
+  return bits.length ? `, ${bits.join(", ")}` : "";
+}
+
+function sectionRate(title, buckets, emptyNote) {
+  if (!buckets.length) {
+    return `<section class="an-sec">${secHead(title)}<p class="muted">${esc(emptyNote)}</p></section>`;
+  }
+  const rateable = buckets.filter((b) => b.n >= MIN_RATE_N);
+  return `<section class="an-sec">
+    ${secHead(title, `${buckets.length} bucket${buckets.length === 1 ? "" : "s"}`)}
+    <ul class="an-bars">${buckets.map((b) => `
+      <li><span class="an-bar-l">${esc(b.label)}</span>
+        ${b.n >= MIN_RATE_N
+          ? `<span class="an-bar"><i style="width:${(b.value * 100).toFixed(1)}%"></i></span>
+             <span class="an-bar-v num">${Math.round(b.value * 100)}%</span>
+             <span class="an-bar-n">${b.won} of ${b.n} decided${remainder(b)}</span>`
+          : `<span class="an-bar is-thin"></span>
+             <span class="an-bar-v num">—</span>
+             <span class="an-bar-n">${b.n} decided — too few to rate${remainder(b)}</span>`}
+      </li>`).join("")}</ul>
+    ${rateable.length
+      ? `<p class="small muted">Won divided by won plus lost. No-bids are a decision, not a loss,
+          and are counted separately.</p>`
+      : `<p class="small muted">Nothing here has ${MIN_RATE_N} decided pursuits yet, so no rate is drawn.
+          The counts are real; the percentages would not be.</p>`}
+  </section>`;
+}
+
+/* ---- why we win, why we lose ---- */
+function sectionReasons(closed) {
+  const pick = (st) => closed.filter((p) => outcomeOf(p) === st && (p.outcome.reason || "").trim());
+  const won = pick("won"), lost = pick("lost");
+  if (!won.length && !lost.length) {
+    return `<section class="an-sec">${secHead("Why we win, why we lose")}
+      <p class="muted">No closed pursuit records a reason yet. Set the outcome and its reason on a
+        brief when a bid closes — this is the section that pays that back.</p></section>`;
+  }
+  const col = (title, rows) => `
+    <div class="an-col"><h3 class="h3">${esc(title)}</h3>
+      ${rows.length
+        ? `<ul class="an-reasons">${rows.map((p) => `
+            <li><a href="#/b/${esc(p.briefId)}">${esc(p.client)}</a>
+              <span>${esc(p.outcome.reason)}</span></li>`).join("")}</ul>`
+        : `<p class="muted small">Nothing recorded.</p>`}</div>`;
+  return `<section class="an-sec">
+    ${secHead("Why we win, why we lose", `${won.length + lost.length} with a reason`)}
+    <div class="an-cols">${col("Won", won)}${col("Lost", lost)}</div>
+  </section>`;
+}
+
+/* ---- recent closures ---- */
+function sectionClosures(closed) {
+  if (!closed.length) {
+    return `<section class="an-sec">${secHead("Recently closed")}
+      <p class="muted">Nothing has closed yet.</p></section>`;
+  }
+  const rows = closed.slice()
+    .sort((a, b) => String(b.outcome.closedAt || "").localeCompare(String(a.outcome.closedAt || "")))
+    .slice(0, 10);
+  return `<section class="an-sec">
+    ${secHead("Recently closed", `${closed.length} total`)}
+    <ul class="an-closures">
+      <li class="an-closure an-closure-h" aria-hidden="true">
+        <span>Client</span><span>Outcome</span><span>Value</span><span>Closed</span></li>
+      ${rows.map((p) => `
+        <li class="an-closure">
+          <span><a href="#/b/${esc(p.briefId)}">${esc(p.client)}</a></span>
+          <span><b class="an-out" data-k="${esc(outcomeOf(p))}">${esc(outcomeOf(p))}</b></span>
+          <span class="num">${p.bidValue ? esc(money0(p.bidValue.amount)) : "—"}</span>
+          <span class="num">${p.outcome.closedAt ? esc(fmtDate(p.outcome.closedAt)) : "—"}</span>
+        </li>`).join("")}
+    </ul>
+  </section>`;
+}
+
+async function screenAnalytics() {
+  paintConnection();
+  screen.innerHTML = wrap(`<p class="sub">Loading…</p>`);
+  LIBRARY = await listPursuits();
+  screen.innerHTML = analyticsScreen();
 }
 
 /* ============================================================
@@ -729,6 +1183,11 @@ const NEW_ITEM = {
     role: "New role", competency: "", level: "mid", geo: "us", mode: "remote",
     count: 1, hours: 0, hoursAi: 0, rate: { pay: 0, bill: 0, basis: "" },
   }),
+  /* Area doubles as the key, so a new row needs a name nothing else has. */
+  "competencyMix.areas": (p) => ({
+    area: `New area ${((p.competencyMix && p.competencyMix.areas) || []).length + 1}`,
+    weight: 0, basis: "", requirementIds: [], lead: "",
+  }),
   "signals.red":   () => ({ basis: "New signal", source: "" }),
   "signals.green": () => ({ basis: "New signal", source: "" }),
   "signals.soft":  () => ({ basis: "New signal", source: "" }),
@@ -832,6 +1291,21 @@ async function applyEdit(change) {
   }
 
   await setElement(briefId, entry.id, entry);
+
+  /* Provenance follows the edit. The mix line on Summary states where the split
+     came from, and the moment a person overrules a weight it is no longer a
+     derivation — leaving it labeled "read from the requirement split" would be
+     the brief attributing a human's number to /RFP. Written as its own override
+     so it survives a re-import the same way the weight does, and skipped when
+     it already says human, to keep the audit trail one row per real change. */
+  if (/^competencyMix\.areas/.test(String(change.coll || change.path || ""))
+      && BRIEF.pack?.competencyMix?.source !== "human") {
+    await setElement(briefId, "competencyMix.source", {
+      id: "competencyMix.source", kind: "set", path: "competencyMix.source",
+      value: "human", editor: who, at,
+    });
+  }
+
   await appendActivity(briefId, {
     kind: "human", editor: who, elementId: change.elementId || entry.id,
     section: (change.coll || String(change.path || "").split(/[.[]/)[0] || ""),
