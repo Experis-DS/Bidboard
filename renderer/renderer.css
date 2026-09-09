@@ -208,11 +208,40 @@
    grid-template-columns below had no grid to apply to, and Response readiness
    and Critical path stacked full-width on top of each other with their borders
    touching. The rule belongs to the component, not to one of its two homes. */
+/* START, not stretch. Stretching made both tiles as tall as the taller one, and
+   `.rb-expand { margin-top: auto }` then pinned the shorter one's disclosure to
+   the bottom of that borrowed height — so opening "How this is computed" on
+   Response readiness left Critical path a mostly empty box with its own summary
+   stranded 200px below its last line. Each tile is now as tall as its own
+   content, which also collapses the auto margin to nothing (there is no free
+   space left to absorb) and closes the gap that used to sit between the bar and
+   the summary. */
 .rb-pulse { display: grid; grid-template-columns: 1fr 1fr; gap: var(--rb-s3); align-items: stretch; }
+/* Stretch while both are closed — two tiles of the same height read as a pair,
+   and the shorter one simply carries a little space under its last line. The
+   moment either disclosure opens, stop: stretching then made the OTHER tile as
+   tall as an expanded breakdown, which is how Critical path ended up a mostly
+   empty box with 200px of nothing under "How this is counted". Browsers without
+   :has() keep the stretch, which is exactly the behaviour they have today. */
+.rb-pulse:has(.rb-expand[open]) { align-items: start; }
 @media (max-width: 900px) { .rb-pulse { grid-template-columns: 1fr; } }
 
 .rb-card { border: 1px solid var(--rb-line); border-radius: 12px; background: var(--rb-bg); }
-.rb-tile { padding: 15px 18px 12px; display: flex; flex-direction: column; }
+.rb-tile { padding: 16px 18px 14px; display: flex; flex-direction: column; }
+
+/* Inside a tile the disclosure hugs its own content. `margin-top: auto` exists
+   so that a stretched card's summary sits on its bottom edge — that was the
+   right call when the pulse row stretched, and it is the wrong one now: with the
+   tiles sized to their content, auto turns whatever slack is left into a gap
+   between the bar and the summary that changes size depending on what is in the
+   OTHER card. A fixed rhythm reads the same every time. */
+.rb-tile > .rb-expand { margin-top: 0; padding-top: 13px; }
+.rb-tile > .rb-expand[open] { padding-bottom: 2px; }
+
+/* The breakdown is a set of small facts, not a data table — the shared row
+   padding gives each one the height of a requirement, and four of them turned a
+   two-line explanation into a scroll. */
+.rb-tile .rb-expand-body .rb-row { padding-top: 6px; padding-bottom: 6px; }
 
 .rb-tile-label {
   font-size: var(--rb-t-micro); font-weight: 750; letter-spacing: .14em; text-transform: uppercase;
@@ -224,7 +253,7 @@
 }
 .rb-metric-num small { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
 .rb-metric-note { font-size: 13px; color: var(--rb-gray); margin-top: 3px; }
-.rb-bar { height: 5px; border-radius: 3px; background: var(--rb-line-2); margin-top: 12px; overflow: hidden; }
+.rb-bar { height: 5px; border-radius: 3px; background: var(--rb-line-2); margin-top: 11px; overflow: hidden; }
 .rb-bar > i {
   display: block; height: 100%; border-radius: 3px;
   background: linear-gradient(90deg, var(--rb-accent), var(--rb-accent-2));
@@ -1016,7 +1045,7 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 /* ---- readiness blockers ---- */
 /* The reason the number is not 100, directly under the number. Not chips and not
    a card: a short list of links, each landing on the row that has to change. */
-.rb-blockers { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: var(--rb-s3) 0 var(--rb-s5); }
+.rb-blockers { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: var(--rb-s4) 0 var(--rb-s5); }
 .rb-blockers > li { position: relative; padding-left: 13px; font-size: var(--rb-t-small); }
 .rb-blockers > li::before {
   content: ""; position: absolute; left: 0; top: 6px;

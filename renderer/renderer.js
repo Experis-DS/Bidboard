@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.6.0";
+export const RENDERER_VERSION = "3.6.1";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -1115,7 +1115,7 @@ function secPlan(p, d, ctx) {
     : "";
 
   return head("Our readiness") +
-    `<div class="rb-zone rb-pulse" style="margin-top:0">
+    `<div class="rb-zone rb-pulse" style="margin-top:var(--rb-s3)">
        ${tileReadiness(d.readiness)}
        ${tileCountdown(d.criticalPath)}
      </div>` +
