@@ -335,6 +335,56 @@
 }
 @media (max-width: 720px) { .rb-verdict p { grid-template-columns: 1fr; gap: 2px; } }
 
+/* The label's second line. Two of these rows were reported as reading like the
+   same sentence twice; the labels were the cause, so each now says which
+   question it answers rather than leaving the reader to infer it. */
+.rb-vhint {
+  display: block; margin-top: 2px;
+  font-size: var(--rb-t-micro); font-weight: 500; letter-spacing: 0;
+  color: var(--rb-gray-3); text-transform: none;
+}
+
+/* --- execution fit: a score with its inputs shown ---
+   Same instrument as Response readiness — number, bars, basis, arithmetic —
+   because a reader who has learned to read one should not have to learn a
+   second. */
+.rb-fit { display: block; }
+.rb-fit-head { display: flex; align-items: baseline; gap: 6px; }
+.rb-fit-score {
+  font-size: 26px; font-weight: 750; letter-spacing: -.03em; line-height: 1.05;
+  font-variant-numeric: tabular-nums; color: var(--rb-ink);
+}
+.rb-fit-of { font-size: 13px; color: var(--rb-gray-2); font-variant-numeric: tabular-nums; }
+
+.rb-fit-parts { display: grid; gap: 9px; margin-top: 11px; }
+/* The bar is CAPPED, not elastic. Stretched to the column it ran most of the
+   width of the page and threw its own percentage to the far right, so the three
+   parts of one reading — name, bar, number — stopped reading as one thing. The
+   trailing 1fr absorbs the slack instead. */
+.rb .rb-fit-part {
+  display: grid; grid-template-columns: minmax(0, 132px) minmax(60px, 230px) 38px minmax(0, 1fr);
+  gap: 3px 12px; align-items: center; text-decoration: none; color: inherit;
+  padding: 2px 0; border-radius: 5px;
+}
+.rb .rb-fit-part:hover .rb-fit-k { color: var(--rb-accent); }
+.rb-fit-k { font-size: 13px; color: var(--rb-ink-2); }
+.rb-fit-bar { height: 5px; border-radius: 3px; background: var(--rb-line-2); overflow: hidden; }
+.rb-fit-bar > i {
+  display: block; height: 100%; border-radius: 3px;
+  background: linear-gradient(90deg, var(--rb-accent), var(--rb-accent-2));
+}
+.rb-fit-v { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: var(--rb-ink); }
+/* The basis sits on its own row under the bar it explains, so a long one wraps
+   without pushing the bar out of alignment with the one above it. */
+.rb-fit-basis {
+  grid-column: 1 / -1; font-size: var(--rb-t-micro); color: var(--rb-gray-2); margin-top: -2px;
+}
+.rb-fit .rb-formula { margin-top: 11px; white-space: normal; }
+
+/* The human's sentence, underneath the measurement it is interpreting. */
+.rb-fit-read { display: block; margin-top: 11px; }
+.rb-fit-none { display: block; font-size: 13px; color: var(--rb-gray-2); }
+
 /* --- people --- */
 .rb-people { display: flex; flex-wrap: wrap; gap: 7px; }
 .rb-person {

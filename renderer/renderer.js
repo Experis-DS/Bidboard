@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.6.3";
+export const RENDERER_VERSION = "3.7.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -85,12 +85,14 @@ const STAGES = [
    ============================================================ */
 
 export function derive(pack) {
+  const mix = deriveMix(pack);
   return {
     readiness: deriveReadiness(pack),
     criticalPath: deriveCriticalPath(pack),
     ownerLoad: deriveOwnerLoad(pack),
     coverage: deriveCoverage(pack),
-    mix: deriveMix(pack),
+    mix,
+    fit: deriveFit(pack, mix),
     people: derivePeople(pack),
     rail: deriveRail(pack),
   };
@@ -168,6 +170,60 @@ function deriveMix(pack) {
 
   return { ok: true, source: basis, areas, total: 100, off: false,
     note: "derived from Effort & team, not from the requirement split" };
+}
+
+/* ---------- execution fit, as a number with its inputs shown ----------
+   "Execution fit" was one line of prose sitting between two other lines of
+   prose, so it read as a third opinion rather than as an assessment. It now
+   carries a score — and a score on an internal tool is only worth having if you
+   can see what produced it, so every input is drawn as a bar with its basis
+   stated beside it and the arithmetic printed underneath, exactly as Response
+   readiness does.
+
+   NOTHING HERE IS INVENTED. Both inputs are computed from what the pack already
+   holds, and an input the pack cannot support is not defaulted, it is absent:
+   a score resting on one input says so and asks to be read as a flag rather
+   than a verdict, and a pack carrying neither input gets no score at all. A
+   fabricated number on an internal tool is how people stop trusting every other
+   number on it. */
+function deriveFit(pack, mix) {
+  const parts = [];
+
+  /* How much of the work falls inside what we actually sell. canonicalComp()
+     places a competency onto our ten areas of expertise or refuses to guess, so
+     the unplaced weight is the honest measure of work we would be reaching for. */
+  if (mix.ok && mix.areas.length) {
+    const total = mix.areas.reduce((t, a) => t + a.weight, 0) || 1;
+    const placed = mix.areas.filter((a) => a.canonical);
+    const inside = placed.reduce((t, a) => t + a.weight, 0);
+    parts.push({
+      key: "Capability match", value: Math.max(0, Math.min(1, inside / total)),
+      basis: `${placed.length} of ${mix.areas.length} areas map onto our ten areas of expertise`,
+      goto: "team",
+    });
+  }
+
+  /* The bid signals, as a ratio. Soft signals are deliberately excluded — they
+     are the ones we could not call either way, and folding them in would let
+     "we don't know" move the number. */
+  const g = arr(pack.signals?.green).length, r = arr(pack.signals?.red).length;
+  if (g + r > 0) {
+    parts.push({
+      key: "Signals for us", value: g / (g + r),
+      basis: `${g} working for us, ${r} against${
+        arr(pack.signals?.soft).length ? ` (${arr(pack.signals.soft).length} soft, not counted)` : ""}`,
+      goto: "risks",
+    });
+  }
+
+  if (!parts.length) {
+    return { ok: false, why: "A fit score needs a competency mix or bid signals. This pack carries neither yet." };
+  }
+  return {
+    ok: true,
+    value: parts.reduce((t, x) => t + x.value, 0) / parts.length,
+    parts, thin: parts.length < 2,
+  };
 }
 
 /* ---------- the people, for the persistent header ----------
@@ -737,12 +793,14 @@ function secSnapshot(p, d, ctx) {
 
   const clientBlock = hasClient || ctx.edit
     ? `<div class="rb-zone">
-         <div class="rb-zone-head"><span>The client</span></div>
+         ${/* Named, not categorical. "The client" is what the section is ABOUT to
+               the tool; the reader wants the company. */""}
+         <div class="rb-zone-head"><span>About ${esc(p.client || "the client")}</span></div>
          <div class="rb-verdict">
            ${has(cc.business) || ctx.edit
              ? `<p><b>What they do</b><span${ed(ctx, "clientContext.business")}>${esc(cc.business || "")}</span></p>` : ""}
            ${teamLine || contacts.length || ctx.edit
-             ? `<p><b>Who we're talking to</b><span>${teamLine}${
+             ? `<p><b>Our contacts</b><span>${teamLine}${
                  contactRows ? `<span class="rb-contacts">${contactRows}</span>` : ""}${
                  addBtn(ctx, "clientContext.contacts", "Add a contact")}</span></p>` : ""}
            ${has(cc.problem) || ctx.edit
@@ -750,15 +808,40 @@ function secSnapshot(p, d, ctx) {
          </div>
        </div>` : "";
 
-  const verdict = has(p.verdict)
+  /* THREE ROWS THAT OVERLAPPED, NOW THREE THAT CANNOT.
+     "What this demands" and "What it's really about" were reported as reading
+     like the same sentence twice, and the labels are why: both invite a summary
+     of the opportunity, so /RFP wrote one into each. They are relabelled to name
+     the two genuinely different questions — the artefact they are asking us to
+     produce, and the thing winning actually turns on — and each says so in its
+     own helper line, because a label alone was not enough to keep them apart.
+     The pack fields are untouched, so nothing already written is lost.
+
+     Execution fit leaves the prose list entirely. Sitting as a third paragraph
+     between two others it read as one more opinion; it is an assessment, so it
+     gets the treatment an assessment earns — a number, its inputs as bars, and
+     the arithmetic printed underneath. The human's sentence stays, underneath
+     the measurement it is interpreting. */
+  const ROWS = [
+    ["What they want from us", "the artefact we would be handing over",
+     p.verdict?.responseType, "verdict.responseType"],
+    ["What winning turns on", "the thing that decides this, if we bid it",
+     p.verdict?.reallyAbout, "verdict.reallyAbout"],
+  ];
+  const verdict = has(p.verdict) || d.fit.ok
     ? `<div class="rb-zone">
          <div class="rb-zone-head"><span>Our read</span></div>
          <div class="rb-verdict">
-           ${[["What this demands", p.verdict.responseType, "verdict.responseType"],
-              ["Execution fit", p.verdict.executionFit, "verdict.executionFit"],
-              ["What it's really about", p.verdict.reallyAbout, "verdict.reallyAbout"]]
-             .filter(([, v]) => has(v) || ctx.edit)
-             .map(([k, v, path]) => `<p><b>${k}</b><span${ed(ctx, path)}>${esc(v)}</span></p>`).join("")}
+           ${ROWS.filter(([, , v]) => has(v) || ctx.edit)
+             .map(([k, hint, v, path]) => `<p><b>${k}<span class="rb-vhint">${esc(hint)}</span></b><span${
+               ed(ctx, path)}>${esc(v || "")}</span></p>`).join("")}
+           ${has(p.verdict?.executionFit) || d.fit.ok || ctx.edit
+             ? `<p><b>Execution fit<span class="rb-vhint">can we deliver this well</span></b><span>
+                  ${fitBlock(d.fit)}
+                  ${has(p.verdict?.executionFit) || ctx.edit
+                    ? `<span class="rb-fit-read"${ed(ctx, "verdict.executionFit")}>${
+                        esc(p.verdict?.executionFit || "")}</span>` : ""}
+                </span></p>` : ""}
          </div>
        </div>` : "";
 
@@ -802,6 +885,28 @@ function secSnapshot(p, d, ctx) {
             that links straight to their rows. Nothing is lost; one place gained. */""}
       ${outlook}
     </div>`;
+}
+
+/* The score, its inputs and its arithmetic — the same shape as Response
+   readiness, because a reader who has learned to open one should not have to
+   learn the other. Each bar links to the tab the input came from. */
+function fitBlock(f) {
+  if (!f.ok) return `<span class="rb-fit-none">${esc(f.why)}</span>`;
+  const pct = (v) => Math.round(v * 100);
+  return `<span class="rb-fit">
+    <span class="rb-fit-head">
+      <b class="rb-fit-score">${pct(f.value)}</b><span class="rb-fit-of">/ 100</span>
+    </span>
+    <span class="rb-fit-parts">${f.parts.map((x) => `
+      <a class="rb-fit-part" href="${goHref(x.goto)}" data-goto="${x.goto}">
+        <span class="rb-fit-k">${esc(x.key)}</span>
+        <span class="rb-fit-bar"><i style="width:${pct(x.value)}%"></i></span>
+        <b class="rb-fit-v">${pct(x.value)}%</b>
+        <span class="rb-fit-basis">${esc(x.basis)}</span>
+      </a>`).join("")}</span>
+    <span class="rb-formula">fit = mean(${f.parts.map((x) => pct(x.value) + "%").join(", ")})${
+      f.thin ? " — one input only, so read it as a flag rather than a verdict" : ""}</span>
+  </span>`;
 }
 
 function summarizeSignals(s) {
