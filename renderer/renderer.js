@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.7.0";
+export const RENDERER_VERSION = "3.8.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -729,6 +729,23 @@ function secMix(p, d, ctx) {
   </div>`;
 }
 
+/* LONG PROSE IS CLAMPED TO THREE LINES, with the rest one click away.
+   /RFP writes a paragraph into fields that are read as a line — the problem
+   statement on one real pursuit ran to fourteen lines and swallowed the whole
+   zone. Truncating it in the pack would destroy work; leaving it whole makes the
+   tab unreadable. So the closed state clamps and the disclosure opens it, which
+   costs nothing and loses nothing. ONE copy of the text: the summary IS the
+   paragraph, and open simply removes the clamp — a separate "full version"
+   underneath is two copies to keep true and a duplicate for anyone searching.
+   The marker is the affordance; short values render as plain text with no
+   disclosure at all, because a control that never does anything is noise. */
+const LONG = 240;
+function clamped(text, attrs = "") {
+  const t = String(text || "");
+  if (t.length <= LONG) return `<span${attrs}>${esc(t)}</span>`;
+  return `<details class="rb-clamp"><summary><span${attrs}>${esc(t)}</span></summary></details>`;
+}
+
 function secSnapshot(p, d, ctx) {
   const subDays = p.submission ? daysFromNow(p.submission.date) : null;
   const urgent = subDays !== null && subDays <= 7 && subDays >= 0;
@@ -741,13 +758,19 @@ function secSnapshot(p, d, ctx) {
          <span class="rb-countdown">${past
             ? `closed <b>${Math.abs(subDays)}</b> days ago`
             : `<b>${subDays}</b> ${subDays === 1 ? "day" : "days"} left`}</span>
-         ${has(p.submission.format) || has(p.submission.method) || ctx.edit
-            ? `<dl class="rb-deadline-meta">${[
-                 ["Submission format", p.submission.format, "submission.format"],
-                 ["Submit via", p.submission.method, "submission.method"],
-               ].filter(([, v]) => has(v) || ctx.edit)
-                .map(([k, v, path]) =>
-                  `<dt>${k}</dt><dd${ed(ctx, path)}>${esc(v)}</dd>`).join("")}</dl>` : ""}
+         ${/* DELIVERABLES, and only deliverables. Submission format and Submit via
+               used to sit here and they are mechanics, not the headline — both are
+               already stated in full on How to submit and confirmed on Submission
+               check, which is where a person goes when they are actually packaging
+               the thing. What belongs beside a deadline is WHAT IS DUE on it. That
+               is `verdict.responseType`, which was a row down in Our read under the
+               label "What they want from us"; the deadline and the deliverable are
+               one fact split across two blocks, so they are one block now. */""}
+         ${has(p.verdict?.responseType) || ctx.edit
+            ? `<dl class="rb-deadline-meta">
+                 <dt>Deliverables</dt>
+                 <dd${ed(ctx, "verdict.responseType")}>${esc(p.verdict?.responseType || "")}</dd>
+               </dl>` : ""}
        </div>`
     : `<p class="rb-empty" style="margin-bottom:var(--rb-s4)">No submission deadline captured in the pack.</p>`;
 
@@ -797,52 +820,37 @@ function secSnapshot(p, d, ctx) {
                the tool; the reader wants the company. */""}
          <div class="rb-zone-head"><span>About ${esc(p.client || "the client")}</span></div>
          <div class="rb-verdict">
+           ${/* <div>, not <p>. The clamp is a <details>, and the HTML parser closes
+                 an open <p> the moment it meets a block-level element — so the
+                 disclosure was hoisted clean out of the row, leaving the label alone
+                 in the grid and the paragraph dumped underneath it at full width.
+                 Same trap the contacts block already documents for <ul>. */""}
            ${has(cc.business) || ctx.edit
-             ? `<p><b>What they do</b><span${ed(ctx, "clientContext.business")}>${esc(cc.business || "")}</span></p>` : ""}
+             ? `<div><b>What they do</b>${clamped(cc.business, ed(ctx, "clientContext.business"))}</div>` : ""}
            ${teamLine || contacts.length || ctx.edit
-             ? `<p><b>Our contacts</b><span>${teamLine}${
+             ? `<div><b>Our contacts</b><span>${teamLine}${
                  contactRows ? `<span class="rb-contacts">${contactRows}</span>` : ""}${
-                 addBtn(ctx, "clientContext.contacts", "Add a contact")}</span></p>` : ""}
+                 addBtn(ctx, "clientContext.contacts", "Add a contact")}</span></div>` : ""}
            ${has(cc.problem) || ctx.edit
-             ? `<p><b>The problem they're solving</b><span${ed(ctx, "clientContext.problem")}>${esc(cc.problem || "")}</span></p>` : ""}
+             ? `<div><b>The problem they're solving</b>${clamped(cc.problem, ed(ctx, "clientContext.problem"))}</div>` : ""}
          </div>
        </div>` : "";
 
-  /* THREE ROWS THAT OVERLAPPED, NOW THREE THAT CANNOT.
-     "What this demands" and "What it's really about" were reported as reading
-     like the same sentence twice, and the labels are why: both invite a summary
-     of the opportunity, so /RFP wrote one into each. They are relabelled to name
-     the two genuinely different questions — the artefact they are asking us to
-     produce, and the thing winning actually turns on — and each says so in its
-     own helper line, because a label alone was not enough to keep them apart.
-     The pack fields are untouched, so nothing already written is lost.
-
-     Execution fit leaves the prose list entirely. Sitting as a third paragraph
-     between two others it read as one more opinion; it is an assessment, so it
-     gets the treatment an assessment earns — a number, its inputs as bars, and
-     the arithmetic printed underneath. The human's sentence stays, underneath
-     the measurement it is interpreting. */
-  const ROWS = [
-    ["What they want from us", "the artefact we would be handing over",
-     p.verdict?.responseType, "verdict.responseType"],
-    ["What winning turns on", "the thing that decides this, if we bid it",
-     p.verdict?.reallyAbout, "verdict.reallyAbout"],
-  ];
-  const verdict = has(p.verdict) || d.fit.ok
+  /* "Our read" is now one thing, so it is named after that thing.
+     It held three prose rows. "What they want from us" moved up beside the
+     deadline as Deliverables — the deadline and what is due on it are one fact.
+     "What winning turns on" is gone: it and the deliverable line kept being
+     written as the same sentence twice, and of the two it is the one whose job
+     is already done by the ask prose above and by Risks & signals below. What
+     remains is the assessment, and a zone with one row whose label differs from
+     its own heading is a wrapper pretending to be a section. */
+  const verdict = has(p.verdict?.executionFit) || d.fit.ok || ctx.edit
     ? `<div class="rb-zone">
-         <div class="rb-zone-head"><span>Our read</span></div>
-         <div class="rb-verdict">
-           ${ROWS.filter(([, , v]) => has(v) || ctx.edit)
-             .map(([k, hint, v, path]) => `<p><b>${k}<span class="rb-vhint">${esc(hint)}</span></b><span${
-               ed(ctx, path)}>${esc(v || "")}</span></p>`).join("")}
-           ${has(p.verdict?.executionFit) || d.fit.ok || ctx.edit
-             ? `<p><b>Execution fit<span class="rb-vhint">can we deliver this well</span></b><span>
-                  ${fitBlock(d.fit)}
-                  ${has(p.verdict?.executionFit) || ctx.edit
-                    ? `<span class="rb-fit-read"${ed(ctx, "verdict.executionFit")}>${
-                        esc(p.verdict?.executionFit || "")}</span>` : ""}
-                </span></p>` : ""}
-         </div>
+         <div class="rb-zone-head"><span>Execution fit</span></div>
+         <p class="rb-sub rb-small" style="margin:2px 0 var(--rb-s3)">Can we deliver this well — scored from what the pack knows.</p>
+         ${fitBlock(d.fit)}
+         ${has(p.verdict?.executionFit) || ctx.edit
+           ? `<p class="rb-fit-read"${ed(ctx, "verdict.executionFit")}>${esc(p.verdict?.executionFit || "")}</p>` : ""}
        </div>` : "";
 
   /* No stage label. It was self-reported and nothing kept it honest, so it went
