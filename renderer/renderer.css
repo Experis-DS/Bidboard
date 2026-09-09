@@ -1239,94 +1239,113 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
    (three in one week, one two months out) and a linear axis gives the most room
    to the stretch where nothing happens. Lanes stopped them colliding; they could
    never make them legible. Splitting the two jobs is what fixes it. */
-.rb-rail { display: grid; gap: 10px; }
-/* 10px of margin, not 6: a dot is 9px wide plus its hit padding and is centred
-   on its position, so the first and last hung past the track ends. */
-/* The track is sized in PIXELS PER DAY and scrolls, rather than fitting the
-   pane. A pursuit spanning 19 months on a fixed axis puts everything happening
-   this month inside 4% of the width; at 7px a day the same pursuit is a 4000px
-   track the reader pans, and the dates a fortnight apart are a legible 100px
-   apart. Never narrower than the pane, so a short pursuit still fills it. */
-.rb-rail-scroll { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: thin; }
-.rb-rail-track {
-  position: relative; height: 26px; margin: 0 10px;
-  width: max(calc(100% - 20px), calc(var(--rb-rail-days, 30) * var(--rb-rail-ppd, 7px)));
+/* ---- the date rail: one scrollable sequence, every name on its own dot ----
+   Not a linear axis. Items are evenly spaced in date order and the interval to
+   the previous one is printed on the connector, because no pixels-per-day both
+   fits a 19-month programme on a screen and gives a one-week cluster room to
+   write a name in. See deriveRail() for the three designs that proved it. */
+.rb-rail { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+
+.rb-rail-scroll {
+  overflow-x: auto; overscroll-behavior-x: contain;
+  scrollbar-width: none;                       /* the arrows and the trackpad are the affordance */
+  /* No scroll-snap. It fought the opening position — the strip is placed on TODAY
+     programmatically, and proximity snapping then dragged it to whichever item
+     boundary was nearest, which is how the rail kept opening two items past the
+     one it was told to open on. */
 }
-.rb-rail-line {
-  position: absolute; left: 0; right: 0; bottom: 5px; height: 2px;
-  background: var(--rb-line); border-radius: 2px;
+.rb-rail-scroll::-webkit-scrollbar { display: none; }
+
+.rb-rail-seq {
+  display: flex; align-items: stretch; gap: 0;
+  list-style: none; margin: 0; padding: 0; width: max-content; min-width: 100%;
 }
-.rb .rb-rail-pt {
-  position: absolute; bottom: 0; transform: translateX(-50%);
-  display: block; padding: 4px; text-decoration: none;
+
+/* Every item is the same width, so the connector midpoints land exactly on the
+   boundaries between them and a gap chip can be centred on one. */
+.rb-rail-i {
+  position: relative; flex: 0 0 var(--rb-rail-w, 190px); width: var(--rb-rail-w, 190px);
+  padding: 18px 14px 4px 0;
 }
-.rb .rb-rail-pt i {
-  display: block; width: 9px; height: 9px; border-radius: 50%;
+/* The line runs THROUGH the dots, drawn per item so it stops at the last one
+   rather than trailing into empty space. */
+.rb-rail-i::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 22px; height: 2px;
+  background: var(--rb-line);
+}
+.rb-rail-i:first-child::before { left: 4px; border-radius: 2px 0 0 2px; }
+.rb-rail-i:last-child::before { right: calc(100% - 8px); border-radius: 0 2px 2px 0; }
+
+.rb-rail-dot {
+  position: absolute; left: 0; top: 17px; z-index: 2;
+  width: 10px; height: 10px; border-radius: 50%;
   background: var(--rb-bg); border: 2px solid var(--rb-gray-3);
 }
-.rb .rb-rail-pt.is-done i { background: var(--rb-line); border-color: var(--rb-line); }
-/* Their dates are drawn hollow and lighter. The distinction is weight, not a
-   second colour — the two-colour key this rail used to carry was removed for
-   exactly that reason. */
-.rb .rb-rail-pt.is-theirs i { border-color: var(--rb-line); background: var(--rb-bg); }
-.rb .rb-rail-pt.is-theirs.is-done i { background: var(--rb-line); }
-.rb .rb-rail-pt.is-sub  { z-index: 2; }
-.rb .rb-rail-pt.is-sub i { background: var(--rb-accent); border-color: var(--rb-accent); }
-.rb .rb-rail-pt:hover i { border-color: var(--rb-accent); }
+/* Their dates are drawn hollow and lighter: the distinction is weight, not a
+   second colour. Ours are filled; the submission is the accent. */
+.rb .rb-rail-i:not(.is-theirs):not(.is-today) .rb-rail-dot { background: var(--rb-gray-3); }
+.rb .rb-rail-i.is-done .rb-rail-dot { background: var(--rb-line); border-color: var(--rb-line); }
+.rb .rb-rail-i.is-sub .rb-rail-dot { background: var(--rb-accent); border-color: var(--rb-accent); }
 
-/* TODAY is a marker, not an axis. Its rule used to run the full height of the
-   strip, which read as a panel divider splitting the header in two. It now just
-   crosses the line it marks. */
-.rb-rail-today { position: absolute; bottom: 0; transform: translateX(-50%); z-index: 3; }
-.rb-rail-today i {
-  position: absolute; bottom: 1px; left: 50%; width: 1px; height: 11px;
-  background: var(--rb-urgent);
+.rb .rb-rail-i a {
+  display: block; text-decoration: none; color: var(--rb-ink-2); padding-top: 14px;
 }
-.rb-rail-today b {
-  position: absolute; bottom: 13px; left: 50%; transform: translateX(-50%);
-  font-size: 9px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--rb-urgent); white-space: nowrap;
-}
-.rb-rail-today.is-start b { left: 0; transform: none; }
-.rb-rail-today.is-end b { left: auto; right: 0; transform: none; }
-.rb-rail.is-past .rb-rail-line { opacity: .6; }
+.rb .rb-rail-i a:hover b { color: var(--rb-accent); }
+.rb .rb-rail-i a:hover .rb-rail-dot { border-color: var(--rb-accent); }
 
-/* The key. Wraps at any width, so nothing is ever truncated and nothing can
-   overflow the track. Reading order matches the dots left to right. */
-.rb-rail-key { display: flex; flex-wrap: wrap; gap: 4px 18px; }
-/* Capped measure. /RFP writes provenance into a date label — "Reconnect call
-   with Angela (transcript: Wednesday of the week of 21 September)" — and an
-   uncapped row ran 460px, so four dates took four rows. Wrapping each within its
-   own column gives a tidy grid and halves the header. Nothing is truncated: the
-   cap changes where the text wraps, not how much of it there is. */
-.rb .rb-rail-key a {
-  display: grid; grid-template-columns: 9px minmax(0, auto); gap: 2px 7px; align-items: baseline;
-  text-decoration: none; color: var(--rb-ink-2); padding: 2px 0; max-width: 34ch;
+/* Two lines, then stop. A /RFP date label runs to a full sentence — "Reconnect
+   call with Angela (transcript: Wednesday of the week of 21 September)" — and an
+   unclamped one made this row four times the height of its neighbours. The whole
+   string is on the item's title, and the Timeline tab carries it in full. */
+.rb-rail-i b {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: var(--rb-t-small); font-weight: 650; line-height: 1.32; color: var(--rb-ink);
 }
-.rb-rail-key b { overflow-wrap: anywhere; }
-.rb .rb-rail-key a:hover { text-decoration: none; }
-.rb .rb-rail-key a:hover b { color: var(--rb-accent); }
-.rb-rail-key i {
-  width: 9px; height: 9px; border-radius: 50%; align-self: center;
-  background: var(--rb-bg); border: 2px solid var(--rb-gray-3);
+.rb-rail-when {
+  display: block; margin-top: 3px;
+  font-size: var(--rb-t-micro); color: var(--rb-gray-2); font-variant-numeric: tabular-nums;
 }
-.rb-rail-key b { font-size: var(--rb-t-small); font-weight: 650; }
-.rb-rail-key span {
-  grid-column: 2; font-size: var(--rb-t-micro); color: var(--rb-gray-2);
-  font-variant-numeric: tabular-nums;
-}
-.rb .rb-rail-key .is-sub i { background: var(--rb-accent); border-color: var(--rb-accent); }
-.rb .rb-rail-key .is-sub b { color: var(--rb-ink); font-weight: 700; }
-/* Past dates recede but stay at --gray-2, the lightest text the system allows.
-   They were drifting toward gray-3, which is decoration only. */
-.rb .rb-rail-key .is-done i { background: var(--rb-line); border-color: var(--rb-line); }
-.rb .rb-rail-key .is-done b { color: var(--rb-gray-2); font-weight: 550; }
+/* Past dates recede but stay at gray-2, the lightest colour real text is allowed
+   to be. They were drifting toward gray-3, which is decoration only. */
+.rb .rb-rail-i.is-done b { color: var(--rb-gray-2); font-weight: 550; }
+.rb .rb-rail-i.is-theirs b { font-weight: 550; }
+.rb .rb-rail-i.is-sub b { color: var(--rb-ink); font-weight: 750; }
 
-/* The client's program is no longer a second, folded list under the first. It
-   is in the one key, in date order, drawn hollow: their dates are not ours to
-   hit. The distinction is weight, not a second colour. */
-.rb .rb-rail-key .is-theirs i { border-color: var(--rb-line); background: var(--rb-bg); }
-.rb .rb-rail-key .is-theirs b { font-weight: 550; color: var(--rb-ink-2); }
+/* TODAY is an item in the sequence, at its true place in the order. */
+.rb-rail-i.is-today { flex-basis: 86px; width: 86px; }
+.rb-rail-i.is-today .rb-rail-dot {
+  background: var(--rb-urgent); border-color: var(--rb-urgent); width: 8px; height: 8px; top: 18px;
+}
+.rb-rail-i.is-today b {
+  display: block; padding-top: 14px;
+  font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--rb-urgent);
+}
+
+/* The interval, stated on the connector rather than implied by distance. It sits
+   just BEFORE the dot it leads to, never on it: centred on the item's left edge
+   it covered its own dot exactly — the chip is opaque, so every dot but the first
+   simply vanished and the rail read as a line with no points on it. */
+.rb-rail-gap {
+  position: absolute; left: 0; top: 22px; transform: translate(-100%, -50%);
+  z-index: 3; margin-left: -7px; padding: 0 5px; background: var(--rb-bg);
+  font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
+  color: var(--rb-gray-2); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+
+.rb .rb-rail-nav {
+  flex: none; width: 24px; height: 24px; padding: 0; margin-top: 4px;
+  display: grid; place-items: center; cursor: pointer;
+  border: 1px solid var(--rb-line); border-radius: 50%; background: var(--rb-bg);
+  color: var(--rb-gray-2); font-size: 15px; line-height: 1;
+}
+.rb .rb-rail-nav:hover { color: var(--rb-ink); border-color: var(--rb-gray-3); }
+.rb .rb-rail-nav.is-prev { margin-right: 8px; }
+.rb .rb-rail-nav.is-next { margin-left: 8px; }
+
+@media (max-width: 720px) {
+  .rb-rail-i { --rb-rail-w: 160px; }
+}
 
 /* ---- tabs: the views inside one job ---- */
 .rb-tabs {

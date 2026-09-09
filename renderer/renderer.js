@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.5.0";
+export const RENDERER_VERSION = "3.6.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -226,31 +226,45 @@ function deriveRail(pack) {
   const ours = all.filter((r) => r.kind === "response");
   const theirs = all.filter((r) => r.kind !== "response");
 
-  /* EVERY date is plotted, and the track SCROLLS. It used to plot our response
-     dates only, because on one FIXED-WIDTH linear axis a pursuit running from 6
-     days ago to 570 days out collapses the four dates that matter this month
-     into 3.6% of the width — the far date then reads as slack on the near one,
-     which is the failure the two-clock split exists to stop.
+  /* AN ORDINAL SEQUENCE, NOT A LINEAR AXIS — and every name sits on its own dot.
 
-     Scrolling dissolves that trade. The axis is no longer bounded by the pane:
-     it is sized in PIXELS PER DAY, so a long program is a long track rather than
-     a squashed one, near dates keep real distance between them, and the reader
-     pans to the part of the year they are asking about. The rail still shows
-     POSITION and never progress — nothing on it is hand-maintained, so nothing
-     on it can rot. `span` is handed to the CSS as the day count so the track can
-     size itself; the dots stay in percentages of that span, so a cluster still
-     looks like a cluster at every width. */
-  const plot = all.length >= 2 ? all : [];
-  let track = null;
-  if (plot.length) {
-    const first = Math.min(plot[0].days, 0);
-    const last = Math.max(plot[plot.length - 1].days, 0);
-    const span = last - first || 1;
-    const at = (dd) => Math.max(0, Math.min(100, ((dd - first) / span) * 100));
-    track = { rows: plot.map((r) => ({ ...r, at: at(r.days) })), todayAt: at(0),
-              span, allPast: plot[plot.length - 1].days < 0 };
+     Three designs have now failed on the same rock. Names ON a linear axis were
+     truncated at every width, because real dates cluster: three inside one week
+     and one nineteen months out. Moving them into a key underneath made them
+     legible and cut the tie to the dots — eleven rows wrapping into three ragged
+     columns, with no way to tell which row was which dot. Making the axis scroll
+     at a fixed pixels-per-day fixed the far dates and did nothing for the
+     cluster: at 7px a day, three dates in one week sit 21px apart and their
+     labels still cannot coexist. No pixels-per-day both fits a 19-month
+     programme on a screen and gives a one-week cluster room to write in.
+
+     So the x-axis stops being linear time. Items sit in DATE ORDER, evenly, each
+     carrying its own dot, name, date and days-from-now, and the interval to the
+     next is STATED on the connector rather than implied by distance. Stating it
+     is strictly more honest than drawing it: "+19mo" cannot be misread the way a
+     long empty stretch can, which is the same reason the two-clock split exists
+     — to stop a far date reading as slack on a near one. Nothing here is
+     hand-maintained, so nothing can rot.
+
+     TODAY is an item in the sequence at its true place in the order, so what has
+     passed is still read off the rail at a glance. */
+  const seq = [];
+  let inserted = false;
+  for (const r of all) {
+    if (!inserted && r.days > 0) { seq.push({ today: true }); inserted = true; }
+    seq.push(r);
   }
-  return { ok: true, track, all, ours, theirs, total: all.length };
+  if (!inserted) seq.push({ today: true });          // every date is behind us
+  /* Gaps are measured against the previous ITEM, today included — the interval
+     that matters on the next date is the one from now, not from whatever
+     happened last month. */
+  let prev = null;
+  for (const it of seq) {
+    const d = it.today ? 0 : it.days;
+    it.gap = prev === null ? null : d - prev;
+    prev = d;
+  }
+  return { ok: true, seq, all, ours, theirs, total: all.length };
 }
 
 
@@ -2318,51 +2332,49 @@ function pursuitHeader(p, d, ctx) {
      1100-1680px, three of four were cut off at every width and the two at the
      ends hung past the track. Lanes stopped them colliding; nothing could make
      them legible in that space. */
-  const t = rail.ok ? rail.track : null;
-
   const marks = (r) => `${r.submission ? " is-sub" : ""}${r.kind === "program" ? " is-theirs" : ""}${
     r.days < 0 ? " is-done" : ""}`;
 
-  const dot = (r) => `
-    <a class="rb-rail-pt${marks(r)}"
-       style="left:${r.at.toFixed(2)}%" href="${goHref("timeline")}" data-goto="timeline"
-       tabindex="-1" aria-hidden="true"
-       title="${esc(r.label)} · ${esc(fmtDate(r.date))} · ${relDays(r.days)}"><i></i></a>`;
+  /* The interval to the previous item, printed on the connector. Days up to a
+     fortnight, then weeks, then months: "+19mo" is the shape of the fact, where
+     "+570d" is arithmetic left for the reader to do. */
+  const gapText = (n) => {
+    const a = Math.abs(n);
+    if (a === 0) return "same day";
+    if (a <= 14) return `${a}d`;
+    if (a < 60) return `${Math.round(a / 7)}w`;
+    return `${Math.round(a / 30.4)}mo`;
+  };
 
-  const keyRow = (r) => `
-    <li><a href="${goHref("timeline")}" data-goto="timeline" class="${marks(r).trim()}">
-      <i aria-hidden="true"></i>
-      <b>${esc(r.label)}</b>
-      <span>${esc(fmtDate(r.date))} · ${relDays(r.days)}</span>
-    </a></li>`;
+  const item = (r, i) => {
+    const gap = i === 0 || r.gap === null || r.gap === undefined ? ""
+      : `<span class="rb-rail-gap" aria-hidden="true">${esc(gapText(r.gap))}</span>`;
+    if (r.today) return `<li class="rb-rail-i is-today">${gap}
+      <span class="rb-rail-dot" aria-hidden="true"></span>
+      <b>Today</b></li>`;
+    return `<li class="rb-rail-i${marks(r)}">${gap}
+      <a href="${goHref("timeline")}" data-goto="timeline"
+         title="${esc(r.label)} · ${esc(fmtDate(r.date))} · ${relDays(r.days)}">
+        <span class="rb-rail-dot" aria-hidden="true"></span>
+        <b>${esc(r.label)}</b>
+        <span class="rb-rail-when">${esc(fmtDate(r.date))} · ${relDays(r.days)}</span>
+      </a></li>`;
+  };
 
+  /* ONE instrument. There is no key underneath any more: a name that was not on
+     a dot was the whole complaint, and two lists describing one calendar made
+     the reader hold two orderings at once to answer a question about either. The
+     arrows are for the mouse — the strip scrolls with a trackpad, a shift-wheel
+     and the keyboard regardless — and they hide themselves when it all fits. */
   const track = rail.ok ? `
-    <div class="rb-rail${t && t.allPast ? " is-past" : ""}">
-      ${t ? `<div class="rb-rail-scroll" data-today="${t.todayAt.toFixed(2)}">
-        <div class="rb-rail-track" style="--rb-rail-days:${t.span}" aria-hidden="true">
-        <span class="rb-rail-line"></span>
-        ${/* The label is centred on the marker, and the track now sits inside a
-              scroll container that CLIPS — so on a pursuit where today is at one
-              end of the span (the common case: a live bid with everything still
-              ahead of it) half of "Today" was cut off by the container edge. It
-              hung harmlessly outside before there was anything to clip it. At
-              the ends the label anchors instead of centring. */""}
-        <span class="rb-rail-today${t.todayAt < 4 ? " is-start" : t.todayAt > 96 ? " is-end" : ""}"
-              style="left:${t.todayAt.toFixed(2)}%"><i></i><b>Today</b></span>
-        ${/* Two dates on one day draw one dot. The submission paints last so it
-              is the one on top, which is the right one to see. */""}
-        ${t.rows.filter((r) => !r.submission).map(dot).join("")}
-        ${t.rows.filter((r) => r.submission).map(dot).join("")}
-        </div>
-      </div>` : ""}
-      ${/* ONE key, every date, in date order. The client's program used to sit
-            under it in a second <details> holding a second list — which read as
-            a duplicate of the rows above it, stacked a bullet list into the
-            header, and made the reader hold two orderings at once to answer a
-            question about one calendar. The program dates are not dropped: they
-            are in this list, drawn hollow, and now plotted on the track as well,
-            which is what the scroll made possible. */""}
-      ${rail.all.length ? `<ol class="rb-rail-key">${rail.all.map(keyRow).join("")}</ol>` : ""}
+    <div class="rb-rail">
+      <button type="button" class="rb-rail-nav is-prev" data-railnav="-1"
+              aria-label="Earlier dates" hidden>&#8249;</button>
+      <div class="rb-rail-scroll">
+        <ol class="rb-rail-seq">${rail.seq.map(item).join("")}</ol>
+      </div>
+      <button type="button" class="rb-rail-nav is-next" data-railnav="1"
+              aria-label="Later dates" hidden>&#8250;</button>
     </div>` : "";
 
   return `<div class="rb-hdr">${people}${track}</div>`;
@@ -2974,21 +2986,50 @@ export function renderBrief(pack, mount, opts = {}) {
     writeOpened(current.briefId, ctx.opened);
   }, true);
 
-  /* The rail opens where the reader is. The track is sized in pixels per day
-     rather than fitted to the pane, so on a pursuit carrying a client program a
-     year out it is several thousand pixels wide — and a scroll container starts
-     at scrollLeft 0, which would open the header on dates that have already
-     passed and hide the submission off the right edge. Put TODAY a quarter of
-     the way in: the recent past stays visible, and what is coming gets the rest
-     of the width. */
+  /* The rail opens where the reader is, and the arrows stay honest about what is
+     off-screen. A pursuit carrying a client programme runs to a dozen items, so a
+     strip that starts at scrollLeft 0 opens on dates that have already passed and
+     hides the submission off the right edge. Put TODAY one item in from the left. */
   const railScroll = mount.querySelector(".rb-rail-scroll");
-  if (railScroll) requestAnimationFrame(() => {
-    const track = railScroll.firstElementChild;
-    if (!track) return;
-    const x = track.offsetWidth * (Number(railScroll.dataset.today || 0) / 100)
-      - railScroll.clientWidth * 0.25;
-    railScroll.scrollLeft = Math.max(0, x);
-  });
+  if (railScroll) {
+    const prevBtn = mount.querySelector(".rb-rail-nav.is-prev");
+    const nextBtn = mount.querySelector(".rb-rail-nav.is-next");
+    const sync = () => {
+      const max = railScroll.scrollWidth - railScroll.clientWidth;
+      /* Two pixels of slack. Sub-pixel layout leaves a strip scrollable by half a
+         pixel, which lights an arrow that does nothing when you click it. */
+      if (prevBtn) prevBtn.hidden = max <= 2 || railScroll.scrollLeft <= 2;
+      if (nextBtn) nextBtn.hidden = max <= 2 || railScroll.scrollLeft >= max - 2;
+    };
+    on("click", (e) => {
+      const b = e.target.closest("[data-railnav]");
+      if (!b) return;
+      e.preventDefault();
+      railScroll.scrollBy({ left: Number(b.dataset.railnav) * railScroll.clientWidth * 0.8,
+                            behavior: "smooth" });
+    });
+    railScroll.addEventListener("scroll", sync, { passive: true, signal: rbAC.signal });
+    addEventListener("resize", sync, { signal: rbAC.signal });
+    /* Two frames, not one. The first only guarantees the nodes are in the tree;
+       the widths this position is computed from are not final until the frame
+       after layout, and a scrollLeft written against provisional widths lands
+       somewhere arbitrary. */
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const today = railScroll.querySelector(".rb-rail-i.is-today");
+      /* Measured from rects, not offsetLeft. Every item is position:relative, so
+         offsetLeft is reported against whatever positioned ancestor happens to be
+         nearest — which included the sidebar, and put the opening scroll a couple
+         of hundred pixels past where it was told to go. One item of the recent
+         past stays visible to the left of TODAY: what just happened is the
+         context for what is next. */
+      if (today) {
+        const x = today.getBoundingClientRect().left
+          - railScroll.getBoundingClientRect().left + railScroll.scrollLeft;
+        railScroll.scrollLeft = Math.max(0, x - 200);
+      }
+      sync();
+    }));
+  }
 
   attachPopovers(mount, docsByName, ctx, rbAC.signal);
   show(o.section);
