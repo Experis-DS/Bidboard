@@ -60,8 +60,18 @@
 }
 
 .rb *, .rb *::before, .rb *::after { box-sizing: border-box; }
-.rb h1, .rb h2, .rb h3, .rb h4, .rb p, .rb ul, .rb ol, .rb dl, .rb figure { margin: 0; }
-.rb ul, .rb ol { padding: 0; list-style: none; }
+/* The reset is wrapped in :where() so it carries the specificity of `.rb` ALONE.
+   Written as `.rb h1, .rb p, .rb ul …` it scored one class plus one element,
+   which beat every single-class component rule in this file — so any component
+   that happens to BE a heading, paragraph or list has had its margins silently
+   discarded since the stylesheet was written. `.rb-subhead { margin-top: 36px }`
+   and `.rb-blockers { margin: 24px 0 36px }` both computed to 0, which is why
+   the readiness blockers sat flush against the cards above them and the section
+   heading sat flush against the blockers. :where() scores zero, so the reset now
+   ties with a component rule and loses on source order, which is the behaviour
+   every rule below this line was written expecting. */
+.rb :where(h1, h2, h3, h4, p, ul, ol, dl, figure) { margin: 0; }
+.rb :where(ul, ol) { padding: 0; list-style: none; }
 .rb button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
 .rb a { color: var(--rb-accent); text-decoration: none; }
 .rb a:hover { text-decoration: underline; text-underline-offset: 2px; }
@@ -928,6 +938,10 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
   color: var(--rb-gray); max-width: var(--rb-measure);
 }
 .rb-subhead:first-of-type { margin-top: 0; }
+/* …but it IS the first h3 on Our readiness while sitting under the pulse row and
+   the blockers, where it needs its air back. */
+.rb-blockers + .rb-subhead,
+.rb-zone + .rb-subhead { margin-top: var(--rb-s5); }
 
 /* Folded blocks — The Ask inside Scope, the timeline inside Plan, the why
    behind a risk. */
@@ -1045,7 +1059,7 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 /* ---- readiness blockers ---- */
 /* The reason the number is not 100, directly under the number. Not chips and not
    a card: a short list of links, each landing on the row that has to change. */
-.rb-blockers { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: var(--rb-s4) 0 var(--rb-s5); }
+.rb-blockers { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: var(--rb-s4) 0 0; }
 .rb-blockers > li { position: relative; padding-left: 13px; font-size: var(--rb-t-small); }
 .rb-blockers > li::before {
   content: ""; position: absolute; left: 0; top: 6px;
