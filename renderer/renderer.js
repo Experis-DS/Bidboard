@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.6.2";
+export const RENDERER_VERSION = "3.6.3";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -239,12 +239,13 @@ function deriveRail(pack) {
      programme on a screen and gives a one-week cluster room to write in.
 
      So the x-axis stops being linear time. Items sit in DATE ORDER, evenly, each
-     carrying its own dot, name, date and days-from-now, and the interval to the
-     next is STATED on the connector rather than implied by distance. Stating it
-     is strictly more honest than drawing it: "+19mo" cannot be misread the way a
-     long empty stretch can, which is the same reason the two-clock split exists
-     — to stop a far date reading as slack on a near one. Nothing here is
-     hand-maintained, so nothing can rot.
+     carrying its own dot, name, date and days-from-now. The interval between two
+     items is NOT printed: every item states its own date and its own
+     days-from-now, so the reader who wants the gap can take it from either, and
+     a chip on every connector was ten numbers nobody asked for. The one thing
+     spacing cannot say on an ordinal axis is that two items fall on the SAME
+     day — evenly spaced, they look a day or a year apart — so that case, and
+     only that case, is drawn: a dotted connector between them.
 
      TODAY is an item in the sequence at its true place in the order, so what has
      passed is still read off the rail at a glance. */
@@ -255,15 +256,16 @@ function deriveRail(pack) {
     seq.push(r);
   }
   if (!inserted) seq.push({ today: true });          // every date is behind us
-  /* Gaps are measured against the previous ITEM, today included — the interval
-     that matters on the next date is the one from now, not from whatever
-     happened last month. */
+  /* Same-day detection, measured against the previous ITEM (today included).
+     The flag goes on the EARLIER of the pair, because each item draws the
+     connector running to its right — so the earlier one owns the segment
+     between them. */
   let prev = null;
-  for (const it of seq) {
+  seq.forEach((it, i) => {
     const d = it.today ? 0 : it.days;
-    it.gap = prev === null ? null : d - prev;
+    if (prev !== null && d === prev) seq[i - 1].sameDayNext = true;
     prev = d;
-  }
+  });
   return { ok: true, seq, all, ours, theirs, total: all.length };
 }
 
@@ -2335,24 +2337,18 @@ function pursuitHeader(p, d, ctx) {
   const marks = (r) => `${r.submission ? " is-sub" : ""}${r.kind === "program" ? " is-theirs" : ""}${
     r.days < 0 ? " is-done" : ""}`;
 
-  /* The interval to the previous item, printed on the connector. Days up to a
-     fortnight, then weeks, then months: "+19mo" is the shape of the fact, where
-     "+570d" is arithmetic left for the reader to do. */
-  const gapText = (n) => {
-    const a = Math.abs(n);
-    if (a === 0) return "same day";
-    if (a <= 14) return `${a}d`;
-    if (a < 60) return `${Math.round(a / 7)}w`;
-    return `${Math.round(a / 30.4)}mo`;
-  };
-
-  const item = (r, i) => {
-    const gap = i === 0 || r.gap === null || r.gap === undefined ? ""
-      : `<span class="rb-rail-gap" aria-hidden="true">${esc(gapText(r.gap))}</span>`;
-    if (r.today) return `<li class="rb-rail-i is-today">${gap}
+  /* No interval chips. Every item already prints its own date and its own
+     days-from-now, so a "+5w" on each connector was ten numbers restating
+     arithmetic the reader can do — and each one sat on the line where it
+     occluded a dot. The single thing an evenly spaced axis genuinely cannot
+     express is two items on the SAME day, so that alone is drawn: the earlier
+     of the pair renders its connector dotted. */
+  const item = (r) => {
+    const same = r.sameDayNext ? " is-sameday" : "";
+    if (r.today) return `<li class="rb-rail-i is-today${same}">
       <span class="rb-rail-dot" aria-hidden="true"></span>
       <b>Today</b></li>`;
-    return `<li class="rb-rail-i${marks(r)}">${gap}
+    return `<li class="rb-rail-i${marks(r)}${same}">
       <a href="${goHref("timeline")}" data-goto="timeline"
          title="${esc(r.label)} · ${esc(fmtDate(r.date))} · ${relDays(r.days)}">
         <span class="rb-rail-dot" aria-hidden="true"></span>

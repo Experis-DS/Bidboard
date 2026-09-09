@@ -1365,15 +1365,13 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
   color: var(--rb-urgent);
 }
 
-/* The interval, stated on the connector rather than implied by distance. It sits
-   just BEFORE the dot it leads to, never on it: centred on the item's left edge
-   it covered its own dot exactly — the chip is opaque, so every dot but the first
-   simply vanished and the rail read as a line with no points on it. */
-.rb-rail-gap {
-  position: absolute; left: 0; top: 22px; transform: translate(-100%, -50%);
-  z-index: 3; margin-left: -7px; padding: 0 5px; background: var(--rb-bg);
-  font-size: 9.5px; font-weight: 700; letter-spacing: .04em;
-  color: var(--rb-gray-2); font-variant-numeric: tabular-nums; white-space: nowrap;
+/* Two items on the same day are joined by a DOTTED connector. On an evenly
+   spaced axis they otherwise look exactly as far apart as two dates a year
+   apart, and that is the one relationship the spacing genuinely cannot carry —
+   everything else the reader can read off the dates the items already print. */
+.rb-rail-i.is-sameday::before {
+  background: none; height: 0; top: 23px;
+  border-top: 2px dotted var(--rb-gray-3);
 }
 
 .rb .rb-rail-nav {
