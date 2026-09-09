@@ -1468,7 +1468,11 @@ body.cm-picking .rb, body.cm-picking .rb *{ cursor:crosshair !important; }
 .rb .rb-tabs a[aria-selected="true"] .rb-tab-n { color: var(--rb-accent); }
 
 /* ---- competency mix ---- */
-.rb-mix-viz { display: flex; align-items: flex-start; gap: var(--rb-s4); }
+/* The subtitle above this had no bottom margin and the viz had no top one, so
+   the donut and the 100% bar started on the line directly under "Effort share of
+   the delivery" with nothing between them. Every other gap in this zone is s3;
+   this one was zero. */
+.rb-mix-viz { display: flex; align-items: flex-start; gap: var(--rb-s4); margin-top: var(--rb-s3); }
 .rb-mix-main { flex: 1; min-width: 0; }
 .rb-mix-donut { flex: none; }
 .rb-mix-bar {
