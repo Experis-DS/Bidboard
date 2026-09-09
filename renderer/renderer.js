@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.8.0";
+export const RENDERER_VERSION = "3.8.1";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -758,19 +758,14 @@ function secSnapshot(p, d, ctx) {
          <span class="rb-countdown">${past
             ? `closed <b>${Math.abs(subDays)}</b> days ago`
             : `<b>${subDays}</b> ${subDays === 1 ? "day" : "days"} left`}</span>
-         ${/* DELIVERABLES, and only deliverables. Submission format and Submit via
-               used to sit here and they are mechanics, not the headline — both are
-               already stated in full on How to submit and confirmed on Submission
-               check, which is where a person goes when they are actually packaging
-               the thing. What belongs beside a deadline is WHAT IS DUE on it. That
-               is `verdict.responseType`, which was a row down in Our read under the
-               label "What they want from us"; the deadline and the deliverable are
-               one fact split across two blocks, so they are one block now. */""}
-         ${has(p.verdict?.responseType) || ctx.edit
-            ? `<dl class="rb-deadline-meta">
-                 <dt>Deliverables</dt>
-                 <dd${ed(ctx, "verdict.responseType")}>${esc(p.verdict?.responseType || "")}</dd>
-               </dl>` : ""}
+         ${/* Nothing but the date. Submission format and Submit via were mechanics
+               that belong on How to submit, and Deliverables briefly sat here on the
+               grounds that the deadline and what is due on it are one fact — true,
+               and still the wrong place: a masthead is read at a glance, and a
+               sentence hung off it turns the glance into a paragraph. Deliverables
+               is now the closing line of General summary, where a reader has just
+               been told what the thing IS and the natural next question is what we
+               hand over. */""}
        </div>`
     : `<p class="rb-empty" style="margin-bottom:var(--rb-s4)">No submission deadline captured in the pack.</p>`;
 
@@ -780,10 +775,21 @@ function secSnapshot(p, d, ctx) {
     .filter(([, t]) => has(t) || ctx.edit)
     .map(([path, t]) => `<p${edIn(ctx, path, "rb-ask")}>${esc(t)}</p>`).join("");
 
+  /* GENERAL SUMMARY — the whole pursuit in one read, in the order a person asks
+     for it: what this is, what is broken that caused it, and what we would hand
+     over. The ask prose used to sit in an unlabelled zone, which made it read as
+     a preamble to the masthead rather than as a section anybody could point at;
+     the problem statement sat two zones down inside About <client>, where it was
+     filed under the company rather than under the opportunity. They answer one
+     question together and now sit together, and the divider under them is where
+     the brief stops describing the deal and starts describing the company. */
   const cc = p.clientContext || {};
   const team = cc.team || {};
   const contacts = arr(cc.contacts);
-  const hasClient = has(cc.business) || has(cc.problem) || has(team.name) || contacts.length;
+  /* `problem` no longer counts: it renders in General summary now, so a pack
+     carrying only a problem statement would have drawn an About zone with
+     nothing in it. */
+  const hasClient = has(cc.business) || has(team.name) || contacts.length;
 
   /* "reporting to" was inline prose, and /RFP legitimately writes a sentence
      into reportsTo when the documents do not say — which rendered as
@@ -814,6 +820,20 @@ function secSnapshot(p, d, ctx) {
       ${delBtn(ctx, "clientContext.contacts", c.name, "name")}
     </span>`).join("");
 
+  const summaryRows =
+    (has(cc.problem) || ctx.edit
+      ? `<div><b>The problem they're solving</b>${clamped(cc.problem, ed(ctx, "clientContext.problem"))}</div>` : "")
+    + (has(p.verdict?.responseType) || ctx.edit
+      ? `<div><b>Deliverables</b>${clamped(p.verdict?.responseType, ed(ctx, "verdict.responseType"))}</div>` : "");
+
+  const summaryBlock = askParas || summaryRows
+    ? `<div class="rb-zone">
+         <div class="rb-zone-head"><span>General summary</span></div>
+         ${askParas}
+         ${summaryRows ? `<div class="rb-verdict" style="margin-top:var(--rb-s3)">${summaryRows}</div>` : ""}
+       </div>`
+    : "";
+
   const clientBlock = hasClient || ctx.edit
     ? `<div class="rb-zone">
          ${/* Named, not categorical. "The client" is what the section is ABOUT to
@@ -831,8 +851,6 @@ function secSnapshot(p, d, ctx) {
              ? `<div><b>Our contacts</b><span>${teamLine}${
                  contactRows ? `<span class="rb-contacts">${contactRows}</span>` : ""}${
                  addBtn(ctx, "clientContext.contacts", "Add a contact")}</span></div>` : ""}
-           ${has(cc.problem) || ctx.edit
-             ? `<div><b>The problem they're solving</b>${clamped(cc.problem, ed(ctx, "clientContext.problem"))}</div>` : ""}
          </div>
        </div>` : "";
 
@@ -873,7 +891,7 @@ function secSnapshot(p, d, ctx) {
 
       ${deadline}
       ${mineStrip(p, ctx)}
-      ${askParas ? `<div class="rb-zone" style="margin-top:0">${askParas}</div>` : ""}
+      ${summaryBlock}
 
       ${clientBlock}
       ${verdict}
