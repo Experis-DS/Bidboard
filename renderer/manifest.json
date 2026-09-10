@@ -1,5 +1,5 @@
 {
-  "rendererVersion": "3.8.2",
+  "rendererVersion": "3.9.0",
   "schemaSupport": {
     "min": 1,
     "max": 5
@@ -19,10 +19,10 @@
       "team (Effort & team) — Decide",
       "evaluation (Scoring & fit) — Decide",
       "compliance (Delivery scope) — Understand",
-      "rules (How to submit) — Understand",
+      "timeline (Timeline) — Understand",
       "plan (Our readiness) — Bid",
-      "timeline (Timeline) — Bid",
       "questions (Questions to client) — Bid",
+      "rules (How to submit) — Bid",
       "preflight (Submission check) — Submit",
       "decisions (Decision log) — Submit",
       "documents (launcher, not in nav)"
@@ -63,6 +63,7 @@
     "crossLinks": "R-### on questions and Q-### on requirements, both ends; a jump opens whatever is collapsed, closed or filtered between the section and the row"
   },
   "changelog": [
+    "3.9.0 — TWO SECTIONS CHANGE ENTRY. How to submit moves from Understand to Bid: it was filed with Delivery scope as \"the client's fixed material\", which is true of its provenance and wrong about its use — nobody reads the page limit to understand the opportunity, they read it while writing the response. It goes LAST in the Bid strip, so the order runs write, then check the rules you are writing against, and Submit's own Submission check is the next thing along the nav. Timeline moves the other way, from Bid to Understand, beside Delivery scope: the dates and the scope are the two halves of what we would be signing up for. It led Bid on the grounds that the response clock belongs with the response work, but the persistent header rail carries that clock on EVERY tab, so what is left in the section is the shape of the engagement — an Understand question. Neither section id changes and `rules` is still not a SECTION_ALIAS, so every shared link keeps resolving; only the entry it opens under moves. Verified: rules, timeline, compliance, requirements, checklist, dates, plan, questions, preflight, snapshot and evaluation all land on the right section under the right entry.",
     "3.8.2 — What this bid demands: the donut and the 100% bar started on the line directly under the subtitle. `.rb-sub` carries no bottom margin and `.rb-mix-viz` carried no top one, so the one gap in that zone that was not s3 was zero. Now 16px, matching every other gap around it.",
     "3.8.1 — GENERAL SUMMARY becomes a named section, and the masthead goes back to carrying only the date. The ask prose sat in an UNLABELLED zone, so it read as a preamble hanging off the masthead rather than as a section anyone could point at; it now opens a zone called General summary. Under it, in the order a reader asks for them: what this is, then the problem behind it, then what we hand over. `clientContext.problem` moves up out of About <client>, where it was filed under the COMPANY when it is really the reason the opportunity exists; About is left holding what the company does and who we talk to, which is what its heading promises. Deliverables leaves the masthead after one version there: pairing it with the deadline was right about the relationship and wrong about the place, because a masthead is read at a glance and a sentence hung off it turns the glance into a paragraph. It closes General summary instead, where the reader has just been told what the thing is and the next question is what we owe. The zone divider between the two sections is now where the brief stops describing the deal and starts describing the company. hasClient no longer counts `problem`, or a pack carrying only a problem statement would have drawn an empty About zone.",
     "3.8.0 — SUMMARY GETS SHORTER, AND THE HEADLINE CARRIES WHAT IS DUE. Submission format and Submit via come off the masthead: they are mechanics, already stated in full on How to submit and confirmed on Submission check, which is where somebody stands when they are actually packaging the thing. What belongs beside a deadline is WHAT IS DUE on it, so verdict.responseType moves up from Our read and is labelled DELIVERABLES — the deadline and the deliverable were one fact split across two blocks. \"What winning turns on\" is DELETED: it and the deliverable line kept being written as the same sentence twice, and of the two it is the one whose job the ask prose above and Risks & signals below already do. That empties Our read down to the assessment, so the zone is renamed for what it now is — Execution fit — because a zone holding one row whose label differs from its own heading is a wrapper pretending to be a section. LONG PROSE IS CLAMPED to three lines with the rest one click away: /RFP writes a paragraph into fields that are read as a line, and the problem statement on a real pursuit ran fourteen lines and swallowed the zone. Truncating in the pack would destroy work and leaving it whole makes the tab unreadable, so the closed state clamps and the disclosure removes the clamp — ONE copy of the text, not a summary plus a full version, which would be two things to keep true and a duplicate for anyone searching. Values under 240 characters render as plain text with no control at all. FIXED in the same pass: those rows became <div> rather than <p>, because the HTML parser closes an open <p> at the first block-level child — the <details> was being hoisted clean out of the row, leaving the label alone in the grid and the paragraph dumped underneath it at full width. The contacts block already documents the same trap for <ul>.",

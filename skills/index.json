@@ -3,7 +3,7 @@
     "name": "rfp",
     "slash": "/rfp",
     "file": "rfp.skill",
-    "version": "2026.09.09",
+    "version": "2026.09.10",
     "sha": "723a726",
     "bytes": 41556,
     "group": "start-here",
@@ -12,7 +12,7 @@
     "thumb": "assets/skills/rfp.svg",
     "locked": false,
     "published": true,
-    "publishedAt": "2026-09-09"
+    "publishedAt": "2026-09-10"
   },
   {
     "name": "draft-microsite",
@@ -60,16 +60,16 @@
     "name": "go",
     "slash": "/go",
     "file": "go.skill",
-    "version": "2026.09.09",
-    "sha": "25e79fd",
-    "bytes": 259262,
+    "version": "2026.09.10",
+    "sha": "44ad135",
+    "bytes": 260074,
     "group": "owner",
     "order": 5,
     "blurb": "Stands up this site. Run once per team, by whoever owns the repo.",
     "thumb": "assets/skills/go.svg",
     "locked": true,
     "published": true,
-    "publishedAt": "2026-09-09"
+    "publishedAt": "2026-09-10"
   },
   {
     "name": "push-template",

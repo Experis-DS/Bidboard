@@ -12,7 +12,7 @@
    render. Every number is derived or absent.
    ============================================================ */
 
-export const RENDERER_VERSION = "3.8.2";
+export const RENDERER_VERSION = "3.9.0";
 export const SCHEMA_SUPPORT = { min: 1, max: 5 };
 
 /* ---------------- small helpers ---------------- */
@@ -503,13 +503,20 @@ const SECTIONS = [
   { id: "compliance",   label: "Delivery scope",       render: secRequirementsTab, entry: "understand",
     when: (p) => has(p.requirements) || arr(p.dates).some((x) => dateKind(x) === "program"),
     count: (p) => arr(p.requirements).length || null },
-  /* Was "Rules of the bid" — a title that named the container rather than the
-     job. Nobody could tell from it whether the section held the scoring rules,
-     the contract terms or the page limit. It holds the page limit. */
-  { id: "rules",        label: "How to submit",        render: secRulesTab, entry: "understand",
-    when: (p) => has(p.rules),
-    count: (p) => arr(p.rules).length || null },
+  /* Both clocks on one rail. They used to be two folds in two different
+     sections — "Our clock" inside Our readiness, "Their program" inside
+     Delivery scope — so the one question a timeline exists to answer, how the
+     two run against each other, could not be asked at all.
 
+     It sits under Understand, beside Delivery scope: the dates and the scope are
+     the two halves of what we would be signing up for, and the client's
+     programme is the frame around both. It led Bid on the grounds that the
+     response clock belongs with the response work, but the header rail already
+     carries that clock on every tab, so what is left here is the shape of the
+     engagement — which is an Understand question. */
+  { id: "timeline",     label: "Timeline",             render: secTimeline, entry: "understand",
+    when: (p) => has(p.dates) || has(p.submission),
+    count: (p) => arr(p.dates).length || null },
   { id: "risks",        label: "Risks & signals",      render: secRisks, entry: "decide",
     when: (p) => has(p.risks) || has(p.signals) },
   { id: "team",         label: "Effort & team",        render: secTeam, entry: "decide",
@@ -522,15 +529,26 @@ const SECTIONS = [
   { id: "plan",         label: "Our readiness",        render: secPlan, entry: "build",
     when: (p) => has(p.actionItems) || has(p.dates) || has(p.submission),
     count: (p) => arr(p.actionItems).filter((i) => i.status !== "done").length || null },
-  /* Both clocks on one rail. They used to be two folds in two different
-     sections — "Our clock" inside Our readiness, "Their program" inside
-     Delivery scope — so the one question a timeline exists to answer, how the
-     two run against each other, could not be asked at all. */
-  { id: "timeline",     label: "Timeline",             render: secTimeline, entry: "build",
-    when: (p) => has(p.dates) || has(p.submission),
-    count: (p) => arr(p.dates).length || null },
   { id: "questions",    label: "Questions to client",  render: secQuestions, entry: "build",
     when: (p) => has(p.questions), count: (p) => arr(p.questions).length || null },
+  /* Was "Rules of the bid" — a title that named the container rather than the
+     job. Nobody could tell from it whether the section held the scoring rules,
+     the contract terms or the page limit. It holds the page limit.
+
+     It sat under Understand, filed with Delivery scope as "the client's fixed
+     material". True of its provenance and wrong about its use: nobody reads the
+     page limit to understand the opportunity, they read it while writing the
+     response — which is Bid. It goes last in that strip, so the tab order runs
+     write, then check the rules you are writing against, and Submit's own
+     Submission check is the next thing along the nav. `rules` is still NOT a
+     SECTION_ALIAS and the id is unchanged, so every #/b/<pursuit>/rules link
+     already shared keeps resolving; only the entry it opens under moves.
+
+     Understand is left holding Delivery scope alone, which draws no tab strip —
+     a lone tab is a label pretending to be a choice. */
+  { id: "rules",        label: "How to submit",        render: secRulesTab, entry: "build",
+    when: (p) => has(p.rules),
+    count: (p) => arr(p.rules).length || null },
 
   { id: "preflight",    label: "Submission check",     render: secPreflight, entry: "submit",
     when: (p) => has(p.rules) || has(p.submission) },
